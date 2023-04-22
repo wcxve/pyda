@@ -1,0 +1,3 @@
+pymsis>=0.7.0
+pytables>=3.7.0
+
