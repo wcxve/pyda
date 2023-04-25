@@ -389,21 +389,21 @@ if __name__ == '__main__':
 
     # az.waic(idata, var_name='all_channel', scale='deviance')
     # -2 * idata.log_likelihood['all'].mean()
-    # import corner
-    # corner.corner(
-    #     data=idata,
-    #     var_names=['alpha', 'norm'],
-    #     # labels=['$\log A$', r'$\gamma$', '$\mathcal{F}$'],
-    #     label_kwargs={'fontsize': 8},
-    #     quantiles=[0.15865, 0.5, 0.84135],
-    #     levels=[[0.683, 0.954, 0.997],[0.683, 0.95]][1],
-    #     show_titles=True,
-    #     title_fmt='.2f',
-    #     color='#0C5DA5',
-    #     smooth=0.5,
-    #     # range=((0,130),(-1.6,-2.7),(0,3.1e-7))[1:],
-    #     # truths=(*res[0], flux_map),
-    #     # truth_color='red',
-    #     max_n_ticks=5,
-    #     hist_bin_factor=2
-    # )
+    import corner
+    corner.corner(
+        data=idata,
+        var_names=['alpha', 'norm'],
+        # labels=['$\log A$', r'$\gamma$', '$\mathcal{F}$'],
+        label_kwargs={'fontsize': 8},
+        quantiles=[0.15865, 0.5, 0.84135],
+        levels=[[0.683, 0.954, 0.997],[0.683, 0.95]][1],
+        show_titles=True,
+        title_fmt='.2f',
+        color='#0C5DA5',
+        smooth=0.5,
+        # range=((0,130),(-1.6,-2.7),(0,3.1e-7))[1:],
+        # truths=(*res[0], flux_map),
+        # truth_color='red',
+        max_n_ticks=5,
+        hist_bin_factor=2
+    )

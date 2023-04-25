@@ -2,7 +2,7 @@
 """
 Created on Sun Apr 16 03:06:59 2023
 
-@author: Wang-Chen Xue < https://orcid.org/0000-0001-8664-5085 >
+@author: Wang-Chen Xue <https://orcid.org/0000-0001-8664-5085>
 """
 
 import numpy as np
@@ -27,9 +27,9 @@ def tehist_gecam(file, det, gain, trange, erange, dt, t0=0.0, return_ds=True):
     gain : int
         Detector gain type. 0 for high gain and 1 for low gain.
     trange : tuple or list of tuples
-        The time range(s) of events to be discretized.
+        Time range(s) of events to be discretized.
     erange : tuple or list of tuples
-        The energy range(s) of events to be discretized.
+        Energy range(s) of events to be discretized.
     dt : float
         Sampling period in time dimension.
     t0 : float, optional
@@ -71,12 +71,13 @@ def tehist_gecam(file, det, gain, trange, erange, dt, t0=0.0, return_ds=True):
 
     # read in EBOUNDS and EVENTS
     with fits.open(file) as hdul:
-        ebounds = hdul['EBOUNDS'].data
-        overflow = ebounds[447 + det + gain*25]
-        mask = ebounds['E_MAX'] <= overflow['E_MIN']
-        cmax = ebounds[mask]['CHANNEL'].max()
-        ebounds = hdul['EBOUNDS'].data[:cmax+2]
-        ebounds[-1] = overflow
+        ebounds = hdul['EBOUNDS'].data[:447]
+        # ebounds = hdul['EBOUNDS'].data[:448]
+        # overflow = hdul['EBOUNDS'].data[447 + det + gain*25]
+        # mask = ebounds['E_MAX'] <= overflow['E_MIN']
+        # cmax = ebounds[mask]['CHANNEL'].max()
+        # ebounds = hdul['EBOUNDS'].data[:cmax+2]
+        # ebounds[-1] = overflow
 
         evts = hdul[f'EVENTS{det_str}'].data
 
@@ -145,9 +146,9 @@ def thist_gecam(file, det, gain, trange, erange, dt, t0=0.0, return_ds=True):
     gain : int
         Detector gain type. 0 for high gain and 1 for low gain.
     trange : tuple or list of tuples
-        The time range(s) of events to be discretized.
+        Time range(s) of events to be discretized.
     erange : tuple or list of tuples
-        The energy range(s) of events to be discretized.
+        Energy range(s) of events to be discretized.
     dt : float
         Sampling period in time dimension.
     t0 : float, optional
@@ -185,12 +186,13 @@ def thist_gecam(file, det, gain, trange, erange, dt, t0=0.0, return_ds=True):
 
     # read in EBOUNDS and EVENTS
     with fits.open(file) as hdul:
-        ebounds = hdul['EBOUNDS'].data
-        overflow = ebounds[447 + det + gain*25]
-        mask = ebounds['E_MAX'] <= overflow['E_MIN']
-        cmax = ebounds[mask]['CHANNEL'].max()
-        ebounds = hdul['EBOUNDS'].data[:cmax+2]
-        ebounds[-1] = overflow
+        ebounds = hdul['EBOUNDS'].data[:447]
+        # ebounds = hdul['EBOUNDS'].data[:448]
+        # overflow = hdul['EBOUNDS'].data[447 + det + gain*25]
+        # mask = ebounds['E_MAX'] <= overflow['E_MIN']
+        # cmax = ebounds[mask]['CHANNEL'].max()
+        # ebounds = hdul['EBOUNDS'].data[:cmax+2]
+        # ebounds[-1] = overflow
 
         evts = hdul[f'EVENTS{det_str}'].data
 
@@ -252,9 +254,9 @@ def ehist_gecam(file, det, gain, trange, erange, t0=0.0, return_ds=True):
     gain : int
         Detector gain type. 0 for high gain and 1 for low gain.
     trange : tuple or list of tuples
-        The time range(s) of events to be discretized.
+        Time range(s) of events to be discretized.
     erange : tuple or list of tuples
-        The energy range(s) of events to be discretized.
+        Energy range(s) of events to be discretized.
     t0 : float, optional
         Reference time for `trange`. If `trange` is in MET scale, then `t0`
         must be 0.0 (the default).
@@ -284,12 +286,13 @@ def ehist_gecam(file, det, gain, trange, erange, t0=0.0, return_ds=True):
 
     # read in EBOUNDS and EVENTS
     with fits.open(file) as hdul:
-        ebounds = hdul['EBOUNDS'].data
-        overflow = ebounds[447 + det + gain*25]
-        mask = ebounds['E_MAX'] <= overflow['E_MIN']
-        cmax = ebounds[mask]['CHANNEL'].max()
-        ebounds = hdul['EBOUNDS'].data[:cmax+2]
-        ebounds[-1] = overflow
+        ebounds = hdul['EBOUNDS'].data[:447]
+        # ebounds = hdul['EBOUNDS'].data[:448]
+        # overflow = hdul['EBOUNDS'].data[447 + det + gain*25]
+        # mask = ebounds['E_MAX'] <= overflow['E_MIN']
+        # cmax = ebounds[mask]['CHANNEL'].max()
+        # ebounds = hdul['EBOUNDS'].data[:cmax+2]
+        # ebounds[-1] = overflow
 
         evts = hdul[f'EVENTS{det_str}'].data
 
@@ -353,9 +356,9 @@ def _events(file, det, gain, trange, erange, t0):
     gain : int
         Detector gain type. 0 for high gain and 1 for low gain.
     trange : tuple or list of tuples
-        The time range(s) of events.
+        Time range(s) of events.
     erange : tuple or list of tuples
-        The energy range(s) of events.
+        Energy range(s) of events.
     t0 : float, optional
         Reference time for `trange`. If `trange` is in MET scale, then `t0`
         must be 0.0 (the default).
@@ -377,12 +380,13 @@ def _events(file, det, gain, trange, erange, t0):
 
     # read in EBOUNDS and EVENTS
     with fits.open(file) as hdul:
-        ebounds = hdul['EBOUNDS'].data
-        overflow = ebounds[447 + det + gain*25]
-        mask = ebounds['E_MAX'] <= overflow['E_MIN']
-        cmax = ebounds[mask]['CHANNEL'].max()
-        ebounds = hdul['EBOUNDS'].data[:cmax+2]
-        ebounds[-1] = overflow
+        ebounds = hdul['EBOUNDS'].data[:447]
+        # ebounds = hdul['EBOUNDS'].data[:448]
+        # overflow = hdul['EBOUNDS'].data[447 + det + gain*25]
+        # mask = ebounds['E_MAX'] <= overflow['E_MIN']
+        # cmax = ebounds[mask]['CHANNEL'].max()
+        # ebounds = hdul['EBOUNDS'].data[:cmax+2]
+        # ebounds[-1] = overflow
 
         evts = hdul[f'EVENTS{det_str}'].data
 
@@ -424,9 +428,9 @@ def events_gecam(file, dets, gains, trange, erange, t0):
     gains : list of int
         Detector gain type. 0 for high gain and 1 for low gain.
     trange : tuple or list of tuples
-        The time range(s) of events.
+        Time range(s) of events.
     erange : tuple or list of tuples
-        The energy range(s) of events.
+        Energy range(s) of events.
     t0 : float, optional
         Reference time for `trange`. If `trange` is in MET scale, then `t0`
         must be 0.0 (the default).

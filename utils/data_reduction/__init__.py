@@ -1,1 +1,1 @@
-from .gecam_evt import *
+from .gecam import *
