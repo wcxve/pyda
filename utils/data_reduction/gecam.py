@@ -423,9 +423,9 @@ def events_gecam(file, dets, gains, trange, erange, t0):
     ----------
     file : str
         File path of GECAM EVT data.
-    dets : list of int
+    dets : int or list of int
         Serial numbers of GECAM/GRD.
-    gains : list of int
+    gains : int or list of int
         Detector gain type. 0 for high gain and 1 for low gain.
     trange : tuple or list of tuples
         Time range(s) of events.
@@ -441,6 +441,8 @@ def events_gecam(file, dets, gains, trange, erange, t0):
         Events of given `erange`.
 
     """
+    dets = np.atleast_1d(dets)
+    gains = np.atleast_1d(gains)
     erange = np.atleast_2d(erange)
     nenergy = len(erange)
     ndet = len(dets)
@@ -450,6 +452,7 @@ def events_gecam(file, dets, gains, trange, erange, t0):
         for j in range(nenergy):
             evts[j].append(res[j])
     evts = [np.sort(np.hstack(i)) for i in evts]
+    evts = evts[0] if len(evts) == 1 else evts
     return evts
 
 

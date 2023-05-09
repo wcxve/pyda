@@ -5,99 +5,82 @@ Created on Tue Mar 21 15:18:52 2023
 @author: xuewc
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
 import arviz as az
 import pymc as pm
-from pytensor.tensor.math import gammau, log, sqrt, switch
-import pytensor.tensor as pt
-from astropy.io import fits
+import sys
+sys.path.extend([
+    '/Users/xuewc/Library/CloudStorage/OneDrive-个人/Documents/MyWork/DataAnalyzer/',
+    '/Users/xuewc/heasoft-6.31.1/aarch64-apple-darwin22.3.0/lib/',
+    '/Users/xuewc/heasoft-6.31.1/aarch64-apple-darwin22.3.0/lib/python/'
+])
+from pyda.baspec.pymc_spec import Powerlaw, CutoffPowerlaw, WStat, data_wstat
 
-from xspec import AllData
+if __name__ == '__main__':
+    path = '/Users/xuewc/BurstData/GRB221009A/900-1100'
+    N8 = data_wstat(erange=[(0, 20), (30, 40), (900, 1e8)],
+                    spec_on=f'{path}/phase_n8_900-1100.pha',
+                    spec_off=f'{path}/phase_n8_900-1100.bkg',
+                    rspfile=f'{path}/n8_phase2.rsp',
+                    name='N8',
+                    is_ignore=True)
+    B0 = data_wstat(erange=[(0,1000), (20000, 1e8)],
+                    spec_on=f'{path}/phase_b0_900-1100.pha',
+                    spec_off=f'{path}/phase_b0_900-1100.bkg',
+                    rspfile=f'{path}/b0_phase2.rsp',
+                    name='B0',
+                    is_ignore=True)
+    import pytensor.tensor as pt
+    with pm.Model() as model:
+        PhoIndex_CPL = pm.Flat('PhoIndex_CPL')
+        HighECut = pm.HalfFlat('HighECut')
+        PhoIndex_PL = pm.Flat('PhoIndex_PL')
+        norm_CPL = pm.HalfFlat('norm_CPL')
+        norm_PL = pm.HalfFlat('norm_PL')
+        factor_B0 = pm.HalfFlat('factor_B0')
 
-import os
-os.chdir('/Users/xuewc/BurstData/FRB221014/HXMT/')
+        CPL_N8 = norm_CPL*CutoffPowerlaw(N8['ebins_ph'])(PhoIndex_CPL, HighECut)
+        CPL_B0 = norm_CPL*CutoffPowerlaw(B0['ebins_ph'])(PhoIndex_CPL, HighECut)
+        PL_N8 = norm_PL*Powerlaw(N8['ebins_ph'])(PhoIndex_PL)
+        PL_B0 = norm_PL*Powerlaw(B0['ebins_ph'])(PhoIndex_PL)
 
-
-
-def wstat(obs_counts, mod_rates, obs_exp, back_counts, back_exp):
-    n_chans = len(obs_counts)
-    stat = np.empty(n_chans)
-    mr = switch(mod_rates>1.0e-5/obs_exp, mod_rates, 1.0e-5/obs_exp)
-    expo_sum = obs_exp + back_exp
-    a = expo_sum
-    b = expo_sum*mr - obs_counts - back_counts
-    c = -back_counts*mr
-    d = sqrt(b*b - 4.0*a*c)
-    f = switch(b >= 0.0, -2*c / (b + d), -(b - d) / (2*a))
-    stat1 = obs_exp*mr - back_counts*log(back_exp/expo_sum)
-    stat2 = obs_exp*mr + expo_sum*f - obs_counts*log(obs_exp*(mr+f)) \
-            - back_counts*log(back_exp*f) - obs_counts*(1-log(obs_counts)) \
-            - back_counts*(1-log(back_counts))
-    stat = switch(obs_counts==0, stat1, stat2)
-
-    # for ch in range(n_chans):
-    #     si = obs_counts[ch]
-    #     bi = back_counts[ch]
-    #     tsi = obs_exp
-    #     tbi = back_exp
-    #     yi = mr[ch]
-
-    #     ti = tsi + tbi
-    #     if si == 0.0:
-    #         stat[ch] = tsi*yi - bi*log(tbi/ti)
-    #     else:
-    #         a = ti
-    #         b = ti*yi - si - bi
-    #         c = -bi*yi
-    #         d = sqrt(b*b - 4.0*a*c)
-    #         f = -2*c / (b + d) if b >= 0.0 else -(b - d) / (2*a)
-    #         stat[ch] = tsi*yi + ti*f - si*log(tsi*yi+tsi*f) \
-    #                 - bi*log(tbi*f) - si*(1-log(si)) \
-    #                 - bi*(1-log(bi))
-    return stat
-
-AllData.clear()
-AllData('1:1 LE_bmin5.grp 2:2 ME_bmin5.grp 3:3 HE_bmin5.grp')
-
-ign_str = ['**-1.0 11.0-**', '**-8.0 35.0-**', '**-18.0 250.0-**']
-
-spec = []
-exposure = []
-spec_bkg = []
-exposure_bkg = []
-rsp = []
-Eph = []
-for i in range(3):
-    s = AllData(i+1)
-    s.ignore(ign_str[i])
-
-    spec.append(np.round(np.array(s.values) * s.exposure))
-    exposure.append(s.exposure)
-    spec_bkg.append(np.round(np.array(s.background.values)*s.background.exposure))
-    exposure_bkg.append(s.background.exposure)
-    Eph.append(np.array(s.response.energies))
-
-    with fits.open(s.fileName) as hdul:
-        data = hdul['SPECTRUM'].data
-        indices = np.where(data['GROUPING'] == 1)[0]
-        # spec.append(np.add.reduceat(data['COUNTS'], indices)[s.noticed])
-    with fits.open(s.response.rmf) as hdul:
-        rsp_matrix = hdul['MATRIX'].data['MATRIX']
-        rsp.append(np.add.reduceat(rsp_matrix, indices, axis=1)[:, s.noticed])
-
-with pm.Model() as cpl:
-    PhoIndex = pm.Uniform('PhoIndex', lower=-5, upper=5)
-    HighECut = pm.Uniform('HighECut', lower=-5, upper=5)
-    log_norm = pm.Uniform('log_norm', lower=-20, upper=20)
-
-    a = 1 - PhoIndex
-    x = [i/HighECut for i in Eph]
-    integral = [-np.exp(log_norm) * HighECut**a * gammau(a, x) for e in Eph]
-    model_flux = [i[1:]-i[:-1] for i in integral]
-    model_rate = [fi@rspi for fi, rspi in zip(model_flux, rsp)]
-
-    le_like = pm.Potential('le_like',
-                           wstat(spec[0], model_rate[0], exposure[0],
-                                 spec_bkg[0], exposure_bkg[0]))
-    trace = pm.sample()
+        N8_wstat = WStat(PL_N8+CPL_N8, N8['response'], N8['Non'], N8['Noff'], N8['Ton'], N8['Toff'],
+                           name='N8', channel=N8['channel'])
+        B0_wstat = WStat(factor_B0*(PL_B0 + CPL_B0), B0['response'], B0['Non'], B0['Noff'], B0['Ton'],
+              B0['Toff'],
+              name='B0', channel=B0['channel'])
+        # pi_J = pt.log(pm.math.det(model.d2logp())) / 2.0
+        # pi_J = pm.Deterministic('prior', pi_J)
+        # pm.Potential('pi_J', pi_J)
+        idata = pm.sample(20000,
+                          tune=2000,
+                          random_seed=42,
+                          init='jitter+adapt_diag_grad',
+                          # target_accept=0.95,
+                          idata_kwargs={'log_likelihood': True},
+                          )
+        pars_map = pm.find_MAP()
+    #%%
+    az.plot_trace(idata,
+                  var_names=['PhoIndex_CPL', 'HighECut', 'PhoIndex_PL',
+                             'norm_CPL', 'norm_PL', 'factor_B0'])
+    #%%
+    import corner
+    corner.corner(
+        data=idata,
+        var_names=['PhoIndex_CPL', 'HighECut', 'PhoIndex_PL',
+                   'norm_CPL', 'norm_PL', 'factor_B0'],
+        # labels=['$\log A$', r'$\gamma$', '$\mathcal{F}$'],
+        label_kwargs={'fontsize': 8},
+        # quantiles=[0.15865, 0.5, 0.84135],
+        levels=None,#[[0.683, 0.954, 0.997], [0.683, 0.90]][1],
+        show_titles=True,
+        title_fmt='.2f',
+        color='#0C5DA5',
+        #smooth=0.5,
+        # range=((0,130),(-1.6,-2.7),(0,3.1e-7))[1:],
+        truths=[pars_map,
+                az.hdi(idata,0.02).mean(dim='hdi')][1],
+        truth_color='red',
+        max_n_ticks=5,
+        hist_bin_factor=2
+    )

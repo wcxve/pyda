@@ -288,7 +288,7 @@ def event_lags(x, y, tstart, tstop, lstart, lstop, dt, Dt=None):
 #%%
 if __name__ ==  '__main__':
     # CCF运行时间 t ~ N=(tstop-tstart)/Dt
-    # MCCF运行时间 T ~ M*K*t
+    # MCCF运行时间 T ~ M*K*t, M=Dt/dt, K=nlags
     import time
     import matplotlib.pyplot as plt
     import scienceplots

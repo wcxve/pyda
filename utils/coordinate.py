@@ -42,6 +42,8 @@ def cart_to_sph(xyz, deg=True):
 
     theta = np.arctan2(norm_xy, z)
     phi = np.arctan2(y, x)
+    neg = phi < 0.0
+    phi[neg] = phi[neg] + 2.0*np.pi
 
     if deg:
         theta = np.degrees(theta)

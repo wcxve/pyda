@@ -389,10 +389,10 @@ def plot_tehist(evt_file, t0, tstart, tstop, dt, emin=8.0, emax=8000.0):
 
 
 if __name__ == '__main__':
-    # evt_file = '/Users/xuewc/BurstData/GRB230307A/gbg_evt_230307_15_v01.fits'
-    # t0 = 131903046.67
-    evt_file = '/Users/xuewc/BurstData/GRB221009A/gcg_evt_221009_12_v05.fits'
-    t0 = 55857620.0
-    fig, axes = plot_thist(evt_file, t0, -1, 40, 0.1)
-    fig, axes = plot_tehist(evt_file, t0, -1, 40, 0.1)
-    fig, axes = plot_ehist(evt_file, t0, trange=[0, 200])
+    evt_file = '/Users/xuewc/BurstData/GRB230307A/gbg_evt_230307_15_v01.fits'
+    t0 = 131903046.67
+    # evt_file = '/Users/xuewc/BurstData/GRB221009A/gcg_evt_221009_12_v05.fits'
+    # t0 = 55857620.0
+    fig, axes = plot_thist(evt_file, t0, -1, 10, 0.1)
+    fig, axes = plot_tehist(evt_file, t0, -1, 10, 0.1)
+    fig, axes = plot_ehist(evt_file, t0, trange=[-1, 10])
