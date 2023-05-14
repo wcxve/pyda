@@ -6,20 +6,22 @@ Created at 02:14:28 on 2023-05-09
 
 import numpy as np
 import pytensor.tensor as pt
-
-from numba import njit
 from pytensor.gradient import grad_not_implemented
-from pytensor.ifelse import ifelse
 
-from pyda.numerics.specfun import cutoffpl
 
 class SpectralModel(pt.Op):
+    otypes = [pt.dvector]
     def __init__(self, *args, numeric_grad='f'):
-        # difference approximation: c=central, f=forward, and b=backward
-        self._args = args
-        grad_eps = 1e-7 if numeric_grad != 'c' else 1e-4
+        # difference approximation: n=no, c=central, f=forward, and b=backward
+        self._args = [
+            i if type(i) == pt.TensorVariable else pt.constant(i, dtype=float)
+            for i in args
+        ]
+
         self._numeric_grad = numeric_grad
-        self._eps = pt.constant(grad_eps, dtype=float)
+        if numeric_grad != 'n':
+            grad_eps = 1e-7 if numeric_grad != 'c' else 1e-4
+            self._eps = pt.constant(grad_eps, dtype=float)
 
     def __call__(self, *args, **kwargs):
         return self._wrapped_call(*args, **kwargs)
@@ -84,37 +86,45 @@ class SpectralModel(pt.Op):
     def _wrapped_call(self, *args, **kwargs):
         if not kwargs.pop('call_from_grad', False):
             self.ebins = np.asarray(args[0], dtype=np.float64, order='C')
+            if isinstance(self, XspecModel):
+                self.ebins = self.ebins.tolist()
             return super().__call__(*self._args, *args[1:], **kwargs)
         else:
             return super().__call__(*args, **kwargs)
 
     def perform(self, node, inputs, output_storage, params=None):
         # return value
-        output_storage[0][0] = self._perform(self.ebins, *inputs)
+        output_storage[0][0] = self._perform(*inputs, self.ebins)
 
     def grad(self, inputs, output_grads):
         # return grad Op, in backward mode
-        self._flux = self(*inputs, call_from_grad=True)
-        return [
-            pt.dot(output_grads[0], self._grad(inputs, i))
-            for i in range(len(inputs))
-        ]
-        # return [grad_not_implemented(self, i, v) for i,v in enumerate(inputs)]
+        if self._numeric_grad != 'n':
+            if self._numeric_grad != 'c':
+                self._flux = self(*inputs, call_from_grad=True)
+            return [
+                pt.dot(output_grads[0], self._grad(inputs, i))
+                for i in range(len(inputs))
+            ]
+        else:
+            return [
+                grad_not_implemented(self, i, v)
+                for i, v in enumerate(inputs)
+            ]
 
-    @staticmethod
-    def _perform(ebins, *inputs):
+    def _perform(self, ebins, *inputs):
         raise NotImplementedError
 
     def _grad(self, inputs, idx):
         # https://en.wikipedia.org/wiki/Finite_difference
+        # https://www.dam.brown.edu/people/alcyew/handouts/numdiff.pdf
         if self._numeric_grad == 'f':
             # forward difference approximation
             args = inputs[:]
             args[idx] = args[idx] + self._eps
             flux_eps = self(*args, call_from_grad=True)
             return (flux_eps - self._flux)/self._eps
-        if self._numeric_grad == 'c':
-            # central difference approximation, useful when hessian is needed
+        elif self._numeric_grad == 'c':
+            # central difference approximation, accurate when eval hessian
             args = inputs[:]
             args[idx] = args[idx] + self._eps
             flux_peps = self(*args, call_from_grad=True)
@@ -122,50 +132,80 @@ class SpectralModel(pt.Op):
             args[idx] = args[idx] - self._eps
             flux_meps = self(*args, call_from_grad=True)
             return (flux_peps - flux_meps) / (2.0 * self._eps)
+        elif self._numeric_grad == 'b':
+            # backward difference approximation
+            args = inputs[:]
+            args[idx] = args[idx] - self._eps
+            flux_eps = self(*args, call_from_grad=True)
+            return (self._flux - flux_eps)/self._eps
+        else:
+            raise ValueError(
+                f'wrong input ({self._numeric_grad}) for `numeric_grad`, '
+                'supported difference approximation types are "c" for central,'
+                ' "f" for forward, and "b" for backward'
+            )
+
+
+class BlackBody(SpectralModel):
+    from pyda.numerics.specfun import bbody as _perform
+    itypes = [pt.dscalar]
+
+
+class BlackBodyRad(SpectralModel):
+    from pyda.numerics.specfun import bbodyrad as _perform
+    itypes = [pt.dscalar]
+
+
+class CutoffPowerlaw(SpectralModel):
+    from pyda.numerics.specfun import cutoffpl as _perform
+    itypes = [pt.dscalar, pt.dscalar]
 
 
 class Powerlaw(SpectralModel):
+    from pyda.numerics.specfun import powerlaw as _perform
     itypes = [pt.dscalar]
-    otypes = [pt.dvector]
 
-    @staticmethod
-    @njit('float64[::1](float64[::1], Array(float64, 0, "C"))', cache=True)
-    def _perform(ebins, PhoIndex):
-        one_minus_PhoIndex = 1.0 - PhoIndex
-        if one_minus_PhoIndex != 0.0:
-            N = ebins**one_minus_PhoIndex / one_minus_PhoIndex
-        else:
-            N = np.log(ebins)
-        return N[1:] - N[:-1]
 
-class CutoffPowerlaw(SpectralModel):
-    itypes = [pt.dscalar, pt.dscalar]
-    otypes = [pt.dvector]
+class XspecModel(SpectralModel):
+    try:
+        from mxspec._pymXspec import callModFunc as _callModFunc
+    except:
+        raise ImportError('Xspec is not installed')
 
-    @staticmethod
-    def _perform(ebins, PhoIndex, Ecut):
-        return cutoffpl(PhoIndex, Ecut, ebins)
+    def __init__(self, xsmodel, *args, **kwargs):
+        self._xsmodel = xsmodel
+        self.itypes = [pt.dscalar for i in args]
+        return super().__init__(*args, **kwargs)
+
+    def _perform(self, *args):
+        *inputs, ebins = args
+        res = []
+        self._callModFunc(self._xsmodel, ebins, inputs, res, [], 1, '')
+        return np.asarray(res, dtype=np.float64, order='C')
 
 
 if __name__ == '__main__':
     import pymc as pm
     ph_ebins = np.geomspace(1, 10, 101)
-    t = 10
-    src_true = (t*np.exp(2.0)*Powerlaw(pt.constant(1.5,dtype=float)))(ph_ebins)
+    t = 100
+    # src_true = (t*np.exp(2.0)*Powerlaw(1.5))(ph_ebins)
+    src_true = CutoffPowerlaw(1.5, 4.0)(ph_ebins) * 50 * t
     np.random.seed(42)
     data = np.random.poisson(src_true.eval())
     with pm.Model() as model:
         # PhoIndex = pm.Flat('PhoIndex')
         # norm = pt.exp(pm.Flat('norm'))
         PhoIndex = pm.Uniform('PhoIndex', lower=0, upper=5)
-        norm = pm.Uniform('norm', lower=0, upper=30)
-        pl = norm * Powerlaw(PhoIndex, numeric_grad='c')
-        src = pl(ph_ebins)
-        loglike = pm.Poisson('N', mu=(src * t), observed=data)
+        Ecut = pm.Uniform('Ecut', lower=0, upper=20)
+        norm = pm.Uniform('norm', lower=0, upper=100)
+        m = norm * CutoffPowerlaw(PhoIndex, Ecut, numeric_grad='f')
+        # m = norm * XspecModel('powerlaw', PhoIndex)#Powerlaw(PhoIndex)
+        src = m(ph_ebins) * t
+        loglike = pm.Poisson('N', mu=src, observed=data)
         # hess = pm.hessian(model.observedlogp, model.continuous_value_vars)
         # pi_J = pt.log(pm.math.det(hess)) / 2.0
         # pm.Potential('pi_J', pi_J)
-        idata = pm.sample(50000, target_accept=0.95, random_seed=42,
+        idata = pm.sample(10000, target_accept=0.95, random_seed=42,
                           chains=4, progressbar=True)
         # pmap = pm.find_MAP()
     pm.plot_trace(idata)

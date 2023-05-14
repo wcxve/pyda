@@ -375,43 +375,44 @@ double expint_series_n_x_le_2(const int n, const double x)
   return factor + exp(-x) * s;
 }
 
-// double expint_n_e_acc(const int n, const double e, const double x)
-// {
-//   int k, terms = 0;
-//   double b;
-//    __float128 t, u, s, ss, q, d, r;
-//    __float128 one = 1.0q;
-
-//   expint_series1_terms(n+e, x, &b, &terms);
-
-//   t = 1 - n;
-//   t -= e;
-//   u = expq(lgammaq(t)); //tgammaq returns incorrect sign for very small e
-//   if (n % 2 == 0)
-//   {
-//     if (e < 0.0q)
-//       u = -fabsq(u);
-//   }
-//   else
-//   {
-//     if (e > 0.0q)
-//       u = -fabsq(u);
-//   }
-
-//   u *= powq(x, -t);
-
-//   s = one / t;
-//   q = d = one;
-//   for (k = 1; k <= terms; k++)
-//   {
-//     q *= -x;
-//     d *= k;
-//     r = q / (d * (t + k));
-//     s += r;
-//   }
-//   ss = u - s;
-//   return static_cast<double>(ss);
-// }
+//double expint_n_e_acc(const int n, const double e, const double x)
+//{
+//  int k, terms = 0;
+//  double b;
+//   __float128 t, u, s, ss, q, d, r;
+//   __float128 one = 1.0q;
+//
+//  expint_series1_terms(n+e, x, &b, &terms);
+//
+//  // std::cout << "terms = " << terms << std::endl;
+//  t = 1 - n;
+//  t -= e;
+//  u = expq(lgammaq(t)); //tgammaq returns incorrect sign for very small e
+//  if (n % 2 == 0)
+//  {
+//    if (e < 0.0q)
+//      u = -fabsq(u);
+//  }
+//  else
+//  {
+//    if (e > 0.0q)
+//      u = -fabsq(u);
+//  }
+//
+//  u *= powq(x, -t);
+//
+//  s = one / t;
+//  q = d = one;
+//  for (k = 1; k <= terms; k++)
+//  {
+//    q *= -x;
+//    d *= k;
+//    r = q / (d * (t + k));
+//    s += r;
+//  }
+//  ss = u - s;
+//  return static_cast<double>(ss);
+//}
 
 
 /**
@@ -763,12 +764,12 @@ int use_expint_asymp_v(const double v, const double x)
   int i, n_max;
   double r;
 
-  n_max = (int) ceil(abs(v - x) - 1);
+  n_max = (int) ceil(v - x - 1);
 
   r = 1.0 / (v - 1.0);
   for (i = 1; i <= n_max; i++) {
     r *= x / (v - 1.0 - i);
-    if (abs(r) < EPSILON)
+    if (r < EPSILON)
       return i;
   }
   return 0;
@@ -891,8 +892,6 @@ double expint_large_v(const double v, const double x)
     iter = use_expint_asymp_v(v, x);
     if (iter)
       return expint_asymp_v(v, x, iter);
-    else
-      expint_laguerre_series(v, x);
   }
   return expint_laguerre_series(v, x);
 }
@@ -905,7 +904,7 @@ double expint_large_x(const double v, const double x)
   int iter;
 
   // fixed v and large v
-  if (x / abs(v) > 100.0) {
+  if (x / v > 100.0) {
     iter = use_expint_asymp_x(v, x);
     if (iter)
       return expint_asymp_x(v, x, iter);
@@ -951,7 +950,7 @@ double expint_v(const double v, const double x)
 
   // v is integer
   vint = int(v);
-  if (v > 0.0 && v == vint)
+  if (v == vint)
     return expint_n(vint, x);
 
   // special cases
@@ -961,41 +960,70 @@ double expint_v(const double v, const double x)
   // general cases
   if (x <= 1.0)
     return expint_small_x(v, x);
-  else if (abs(v) >= x)
+  else if (v >= x)
     return expint_large_v(v, x);
   else
     return expint_large_x(v, x);
 }
 
-// /**
-//  * Algorithm for the generalized exponential integral with double nu
-//  * accuracy improved: v split into an integral and decimal fractional part.
-//  */
-// double expint_v_imp(const int n, const double e, const double x)
-// {
-//   int iflag = 0;
-//   double result, v;
-//   result = v = 0.0;
+/**
+ * Algorithm for the generalized exponential integral with double nu
+ * accuracy improved: v split into an integral and decimal fractional part.
+ */
+//double expint_v_imp(const int n, const double e, const double x)
+//{
+//  int iflag = 0;
+//  double result, v;
+//  result = v = 0.0;
+//
+//  // check if input is integer, return expint_n
+//  if (e == 0.0)
+//    return expint_n(n, x);
+//
+//  // special cases
+//  if (std::abs(e) < 0.1 && (n < 10 && n > 0) && x < 2.0)
+//    return expint_n_e_acc(n, e, x);
+//
+//  expint_v_special_cases(v, x, &iflag, &result);
+//  if (iflag) return result;
+//
+//  // general cases
+//  v = n + e;
+//  if (x <= 1.0)
+//    return expint_small_x(v, x);
+//  else if (v >= x)
+//    return expint_large_v(v, x);
+//  else
+//    return expint_large_x(v, x);
+//}
 
-//   // check if input is integer, return expint_n
-//   if (e == 0.0)
-//     return expint_n(n, x);
+int use_expint_asymp_x_neg_v(const double v, const double x)
+{
+  int i, n_max;
+  double r;
 
-//   // special cases
-//   if (std::abs(e) < 0.1 && (n < 10 && n > 0) && x < 2.0)
-//     return expint_n_e_acc(n, e, x);
+  n_max = (int) ceil(x - abs(v));
 
-//   expint_v_special_cases(v, x, &iflag, &result);
-//   if (iflag) return result;
+  r = 1.0;
+  for (i = 1; i <= n_max; i++)
+  {
+    r *= (v + i - 1) / x;
+    if (abs(r) < EPSILON)
+      return i;
+  }
+  return 0;
+}
 
-//   // general cases
-//   v = n + e;
-//   if (x <= 1.0)
-//     return expint_small_x(v, x);
-//   else if (v >= x)
-//     return expint_large_v(v, x);
-//   else
-//     return expint_large_x(v, x);
-// }
+double expint_large_x_neg_v (const double v, const double x) {
+  int iter;
+
+  // fixed v and large v
+  if (x / v > -100.0) {
+    iter = use_expint_asymp_x_neg_v(v, x);
+    if (iter)
+      return expint_asymp_x(v, x, iter);
+  }
+  return expint_laguerre_series(v, x);
+}
 
 #endif /* EXPINT_HPP */

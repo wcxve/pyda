@@ -373,7 +373,6 @@ def data_wstat(erange, spec_on, spec_off, rspfile, name=None, is_ignore=False):
 
 
 if __name__ == '__main__':
-    raise ValueError
     import arviz as az
     path = '/Users/xuewc/BurstData/FRB221014/HXMT/'
     LE = data_wstat([1, 11],

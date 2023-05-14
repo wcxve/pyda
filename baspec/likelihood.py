@@ -8,8 +8,10 @@ import pymc as pm
 import pytensor as pt
 
 
-def poisson_logp(value, mu, beta, gof):
-    return beta * (pm.Poisson.logp(value, mu) - gof)
+def poisson_logp(value, mu, beta):
+    gof = beta*(value*pt.log(value) - value)
+    logp = beta*(value*pt.log(mu) - mu)
+    return logp - gof
 
 
 def poisson_random(*pars, rng=None, size=None):
@@ -17,6 +19,7 @@ def poisson_random(*pars, rng=None, size=None):
 
 
 def wstat_background(src_rate, n_on, n_off, t_on, t_off):
+    # TODO: replace switch with scan and ifelse
     s = src_rate * t_on
     a = t_on / t_off
     c = a * (n_on + n_off) - (a + 1) * s
@@ -78,16 +81,14 @@ class Wstat(pm.Model):
             )
         )
 
-        gof_on = pm.Poisson.logp(n_on, n_on).eval()
         pm.CustomDist(
-            f'{name_}Non', s+b, beta, gof_on,
+            f'{name_}Non', s+b, beta,
             logp=poisson_logp, random=poisson_random,
             observed=n_on, dims=chdim
         )
 
-        gof_off = pm.Poisson.logp(n_off, n_off).eval()
         pm.CustomDist(
-            f'{name_}Noff', b/a, beta, gof_off,
+            f'{name_}Noff', b/a, beta,
             logp=poisson_logp, random=poisson_random,
             observed=n_off, dims=chdim
         )
