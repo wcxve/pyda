@@ -12,11 +12,10 @@ from stingray import Lightcurve, Powerspectrum
 from tqdm import tqdm
 
 def calc_mvts(
-    t, counts, back_rate=0.0, nsim=1000, exposure=None, confidence=0.99, dj=1/4,
+    t, counts, wn_power=2.0, confidence=0.99, dj=1/4, back_rate=0.0, nsim=1000,
     plot_fig=(0, 1), mult_hypo_corr='n', wavelet='morlet', sci_nota=0,
     title=None
 ):
-    # TODO: exposure correction
     t = np.asarray(t)
     counts = np.asarray(counts)
 
@@ -78,8 +77,10 @@ def calc_mvts(
     edof = dofmin * np.sqrt(1 + (na * dt / (gamma * scales)) ** 2)
     edof[edof < dofmin] = dofmin
 
-    # factor 2 is for Leahy normalization
-    upper1, median1, lower1 = edof / chi2.ppf(p[:, None], edof) * 2
+    # when dead time effect is negligible and Leahy normalization is used,
+    # wn_power is 2.0, otherwise wn_power will be smaller than 2.0
+    # wn_power can be estimated by fitting PSD
+    upper1, median1, lower1 = edof / chi2.ppf(p[:, None], edof) * wn_power
 
     mvt1 = np.min(period[cwt_power_global > upper1])
     if sci_nota:

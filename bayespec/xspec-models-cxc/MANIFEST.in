@@ -1,0 +1,16 @@
+# What needs to get included here?
+
+recursive-include helpers *.py
+
+include template/xspec.cxx
+
+include CHANGELOG.md
+include LICENSE
+include README.md
+include scripts/doc-example.py
+include scripts/example.py
+include scripts/example-additive.png
+include scripts/example-multiplicative.png
+include scripts/example-convolution.png
+
+include src/include/xspec_models_cxc.hh

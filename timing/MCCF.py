@@ -2,15 +2,15 @@
 """
 Created on Mon Apr 17 00:57:23 2023
 
-@author: Wang-Chen Xue < https://orcid.org/0000-0001-8664-5085 >
+@author: Wang-Chen Xue <https://orcid.org/0000-0001-8664-5085>
 """
 
-import numpy as np
-from numba import guvectorize, njit
-from numpy.linalg import norm
-
-from numba import prange
 from math import lgamma, log
+
+import numpy as np
+from numba import guvectorize, njit, prange
+from tqdm import tqdm
+
 @njit('float64[::1](float64[::1],float64,float64,int64[::1])',
       cache=True, parallel=True)
 def knuth_bin_logp(data, left, right, nbins):
@@ -71,9 +71,9 @@ def knuth_bin_logp(data, left, right, nbins):
 @njit('float64(int64[::1], int64[::1])', cache=True)
 def CCF(u, v):
     u = u - u.mean()
-    u /=norm(u)
+    u /= np.linalg.norm(u)
     v = v - v.mean()
-    v /= norm(v)
+    v /= np.linalg.norm(v)
     return min(max(np.dot(u, v), -1.0), 1.0)
 
 
@@ -115,13 +115,42 @@ def MCCF(X, Y, M):
     return mccf
 
 
-@guvectorize(
-    ['void(int64[::1], int64[::1], int64, int64[::1])'],
-    '(x),(y),()->()',
-    cache=True,
-    nopython=True,
-)
-def MCCF_kmax(X, Y, M, Kmax):
+# @guvectorize(
+#     ['void(int64[::1], int64[::1], int64, int64[::1])'],
+#     '(x),(y),()->()',
+#     cache=True,
+#     nopython=True,
+# )
+# def MCCF_kmax(X, Y, M, Kmax):
+#     # assuming the time of y[0] is that of x[0] plus lstart[0], then
+#     #     len(X) = N*M + (M - 1),
+#     #     len(Y) = N*M + (M - 1) + (K - 1),
+#     # where K = nlags, including zero lag, so the last term in len(Y) is K-1,
+#     # and N is the number of CCF bins
+#     N = (X.size - M + 1) // M
+#     K = Y.size - X.size + 1
+#
+#     XM = []
+#     YM = []
+#     for m in range(M):
+#         XM.append(sum_m(X[m : m + N*M], M))
+#         YM.append(sum_m(Y[m : m + (Y.size - m)//M*M], M))
+#
+#     mccf_max = -1.0
+#     kmax = -1
+#     ccf_k = np.empty(M, dtype=np.float64)
+#     for k in range(K):
+#         for m in range(M):
+#             n = m + k
+#             ccf_k[m] = CCF(XM[m], YM[n%M][n//M : n//M + N])
+#         mccf_k = ccf_k.mean()
+#         if mccf_k > mccf_max:
+#             mccf_max = mccf_k
+#             kmax = k
+#
+#     Kmax[0] = kmax
+@njit('int64(int64[::1], int64[::1], int64)', cache=True, nogil=True)
+def MCCF_kmax(X, Y, M):
     # assuming the time of y[0] is that of x[0] plus lstart[0], then
     #     len(X) = N*M + (M - 1),
     #     len(Y) = N*M + (M - 1) + (K - 1),
@@ -148,8 +177,7 @@ def MCCF_kmax(X, Y, M, Kmax):
             mccf_max = mccf_k
             kmax = k
 
-    Kmax[0] = kmax
-
+    return kmax
 
 @njit('int64[::1](int64)', cache=True)
 def prime_factors(n):
@@ -172,7 +200,7 @@ def prime_factors(n):
     return factors
 
 
-@njit('int64[::1](int64)', cache=True)
+@njit('int64[::1](int64)', cache=True, )
 def dividable_factors(n):
     i = 1
     res = []
@@ -209,7 +237,7 @@ def event_lag(x, y, tstart, tstop, lstart, lstop, dt, Dt=None, nboots=1000):
         logp_xbin = knuth_bin_logp(x, tstart, tstop, nbins)
         logp_ybin = knuth_bin_logp(y, tstart, tstop, nbins)
         M = nbins[(logp_xbin + logp_ybin).argmax()]
-        print(f"MCCF: Dt set to {M}*dt={M*dt} according to Knuth's rule.")
+        print(f"MCCF: Dt set to {M}*dt={M*dt:.3f} according to Knuth's rule.")
     else:
         tmp = Dt/dt
         M = round(tmp)
@@ -233,9 +261,15 @@ def event_lag(x, y, tstart, tstop, lstart, lstop, dt, Dt=None, nboots=1000):
     lags = np.linspace(lstart, lstop, nlags + 1)
     # mccf = MCCF(X, Y, M)
     lag_data = lags[MCCF_kmax(X, Y, M)]
-    XB = np.random.poisson(X, size=(nboots, X.size))
-    YB = np.random.poisson(Y, size=(nboots, Y.size))
-    lag_boots = lags[MCCF_kmax(XB, YB, M)]
+    rng = np.random.default_rng(42)
+    XB = rng.poisson(X, size=(nboots, X.size))
+    YB = rng.poisson(Y, size=(nboots, Y.size))
+    # TODO: parallize MCCF_kmax
+    # lag_boots = lags[MCCF_kmax(XB, YB, M)]
+    kmax = np.empty(nboots, dtype=np.int64)
+    for i in tqdm(range(nboots)):
+        kmax[i] = MCCF_kmax(XB[i], YB[i], M)
+    lag_boots = lags[kmax]
     lag_uncert = lag_boots.std(ddof=1)
     return lag_data, lag_uncert, lag_boots
 
@@ -256,7 +290,7 @@ def event_lags(x, y, tstart, tstop, lstart, lstop, dt, Dt=None):
         logp_xbin = knuth_bin_logp(x, tstart, tstop, nbins)
         logp_ybin = knuth_bin_logp(y, tstart, tstop, nbins)
         M = nbins[(logp_xbin + logp_ybin).argmax()]
-        print(f"MCCF: Dt set to {M}*dt={M*dt} according to Knuth's rule.")
+        print(f"MCCF: Dt set to {M}*dt={M*dt:.3f} according to Knuth's rule.")
     else:
         tmp = Dt/dt
         M = round(tmp)
@@ -292,8 +326,9 @@ if __name__ ==  '__main__':
     import time
     import matplotlib.pyplot as plt
     import scienceplots
-    x = np.random.normal(0,1,10000)
-    y = np.random.normal(1,1,10000)
+    rng = np.random.default_rng(42)
+    x = rng.normal(0,1,10000)
+    y = rng.normal(1,1,10000)
     t0 = time.time()
     tstart = -1.5
     tstop = 2.5

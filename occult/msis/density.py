@@ -6,6 +6,7 @@
 import multiprocessing as mp
 import platform
 import time
+from sys import stdout
 from typing import Optional
 
 import astropy.units as u
@@ -15,6 +16,7 @@ from astropy.coordinates import GCRS, ITRS, WGS84GeodeticRepresentation
 from astropy.constants import R_earth
 from astropy.time import Time
 from pymsis.utils import get_f107_ap
+from tqdm import tqdm
 
 from .msis import element_density
 
@@ -62,9 +64,9 @@ def column_density(
     name : str, optional
         `name` must be given as `__name__` when call on Windows.
     **kwargs : dict, optional
-        Kwargs for `element_densitydensity`, the availables are `f107`,
-        `f107a`, `ap`, `options` and `version`. Note that `f107`, `f107a` and
-        `ap` must be given together, otherwise they will be ignored.
+        Kwargs for `element_density`. `f107`, `f107a`, `ap`, `options` and
+        `version` are available. Note that `f107`, `f107a` and `ap` must be
+        given together, otherwise they will be ignored.
 
     Returns
     -------
@@ -177,7 +179,10 @@ def column_density(
             for i in range(utc[mask].size)
         ]
 
-        results = [r.get() for r in results]
+        results = [
+            r.get()
+            for r in tqdm(results, total=len(results), file=stdout)
+        ]
 
 
     if summation:

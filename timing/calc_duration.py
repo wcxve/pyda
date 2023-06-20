@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@author: Wang-Chen Xue < https://orcid.org/0000-0001-8664-5085 >
+@author: Wang-Chen Xue <https://orcid.org/0000-0001-8664-5085>
 """
 
 import numpy as np

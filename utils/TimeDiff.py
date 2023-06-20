@@ -8,7 +8,7 @@ Created on Sat Oct 22 14:42:35 2022
 import numpy as np
 from astropy.io import fits
 from astropy.time import Time
-
+from pyda.utils import utc_to_met
 
 def time_diff(src_ra, src_dec, loc0_j2000, loc1_j2000):
     """
@@ -38,39 +38,27 @@ def time_diff(src_ra, src_dec, loc0_j2000, loc1_j2000):
     src_y = np.cos(src_dec)*np.sin(src_ra)
     src_z = np.sin(src_dec)
     p_src = np.array([src_x, src_y, src_z])
-    
+
     p0 = np.atleast_2d(loc0_j2000)
     p1 = np.atleast_2d(loc1_j2000)
     dp = p0 - p1
-    
+
     dt = np.einsum('c,tc->t', p_src, dp) / 299792458.0
     return dt
 
 
-def utc_to_met(utc, sat):
-    if sat.upper() == 'GECAM':
-        UTC0 = '2019-01-01T00:00:00'
-    elif sat.upper() == 'HEBS':
-        UTC0 = '2021-01-01T00:00:00'
-    else:
-        raise ValueError('Available values for `sat` are `GECAM` and `HEBS`')
-    return (Time(utc, scale='utc') - Time(UTC0, scale='utc')).sec
-
-
-def get_sat_j2000(met, orbit_file, sat, ext=1):
+def get_sat_j2000(utc, orbit_file, ext=1):
     """
     Compute J2000 coordinates of satellite given the time and orbit file.
 
     Parameters
     ----------
-    met : array_like
-        MET of the satellite.
+    utc : array_like
+        Dates and times, in ISO-8601 format.
     orbit_file : str
         File path of the orbit file.
-    sat : str
-        Satellite label, available values are `HXMT` and `GECAM`.
     ext : int or str, optional
-        Extension index or name of orbit file. The default is 1.
+        Extension index or name of `orbit_file`. The default is 1.
 
     Returns
     -------
@@ -79,45 +67,75 @@ def get_sat_j2000(met, orbit_file, sat, ext=1):
 
     """
     with fits.open(orbit_file) as hdul:
+        telescope = hdul[0].header['TELESCOP']
+        sat = telescope if telescope != 'HEBS' else 'GECAM-C'
         orbit = hdul[ext].data
-    
+
     if sat == 'HXMT':
-        x, y, z, vx, vy, vz = (
+        t, x, y, z, vx, vy, vz = (
+            'TIME',
             'X', 'Y', 'Z',
             'VX', 'VY', 'VZ'
         )
-    elif sat == 'GECAM':
-        x, y, z, vx, vy, vz = (
+    elif sat.startswith('GECAM'):
+        t, x, y, z, vx, vy, vz = (
+            'TIME',
             'X_J2000', 'Y_J2000', 'Z_J2000',
             'VX_J2000', 'VY_J2000', 'VZ_J2000'
         )
-    else:
-        raise ValueError('Available values for `sat` are `HXMT` and `GECAM`')
-    time_mask = (
-        int(met.min()) <= orbit['TIME']) & (orbit['TIME'] <= int(met.max())
-    )
-    orbit = orbit[time_mask]
 
-    # get corresponding index of MET in orbit info
-    indices = (met.astype(int) - orbit['TIME'][0]).astype(int)
-    # get the decimal part of MET
-    met_decimal = met - met.astype(int) 
-    # use velocities to compute coordinate
-    sat_x = orbit[x][indices] + met_decimal*orbit[vx][indices]
-    sat_y = orbit[y][indices] + met_decimal*orbit[vy][indices]
-    sat_z = orbit[z][indices] + met_decimal*orbit[vz][indices]
-    
-    return np.c_[sat_x, sat_y, sat_z]
+    elif sat == 'GLAST':
+        t, x, y, z, vx, vy, vz = (
+            'SCLK_UTC',
+            'POS_X', 'POS_Y', 'POS_Z',
+            'VEL_X', 'VEL_Y', 'VEL_Z'
+        )
+        sat = 'Fermi'
+    else:
+        raise ValueError(
+            '`orbit_file` is only supported for "Fermi", "HXMT", and "GECAM"'
+        )
+
+    met = utc_to_met(utc, sat)
+    indices = np.abs(orbit[t]-met).argmin()
+    delta = met - orbit[t][indices]
+    # use velocities to interpolate coordinate
+    sat_x = orbit[x][indices] + delta*orbit[vx][indices]
+    sat_y = orbit[y][indices] + delta*orbit[vy][indices]
+    sat_z = orbit[z][indices] + delta*orbit[vz][indices]
+
+    return np.column_stack((sat_x, sat_y, sat_z))
 
 
 if __name__ == '__main__':
-    ra = 293.743
-    dec = 21.896
-    utc0 = '2022-10-14T19:21:39.100'
-    met_b = utc_to_met(utc0, 'GECAM')
-    met_c = utc_to_met(utc0, 'HEBS')
-    gb_posatt = '/Users/xuewc/BurstData/FRB 221014/gb_posatt_221014_19_v00.fits'
-    gc_posatt = '/Users/xuewc/BurstData/FRB 221014/gc_posatt_221014_19_v00.fits'
-    locb = get_sat_j2000(met_b, gb_posatt, 'GECAM')
-    locc = get_sat_j2000(met_c, gc_posatt, 'GECAM')
-    dt = time_diff(ra, dec, locb, locc)
+    ra, dec = 60.819, -75.379
+    utc0 = '2023-03-07T15:44:06.650'
+    gb_posatt = '/Users/xuewc/BurstData/GRB230307A/GECAM-B/gb_posatt_230307_15_v00.fits'
+    gc_posatt = '/Users/xuewc/BurstData/GRB230307A/GECAM-C/gc_posatt_230307_15_v00.fits'
+    f_poshist = '/Users/xuewc/BurstData/GRB230307A/Fermi/glg_poshist_all_230307_v01.fit'
+    locb = get_sat_j2000(utc0, gb_posatt)
+    locc = get_sat_j2000(utc0, gc_posatt)
+    locf = get_sat_j2000(utc0, f_poshist)
+    dt1 = time_diff(ra, dec, locb, locc)
+    dt2 = time_diff(ra, dec, locb, locf)
+
+    from astropy.time import Time
+    from astropy.units import s
+    utc = Time('2023-03-07T15:44:06.650', scale='utc') + [0, 6, 9, 13, 17, 21,
+                                                          25, 29, 34, 39, 45,
+                                                          50, 55, 61, 68, 76,
+                                                          84, 92, 103, 116,
+                                                          131, 153, 187] * s
+    delta1 = []
+    for t in utc.isot:
+        locb = get_sat_j2000(t, gb_posatt)
+        locc = get_sat_j2000(t, gc_posatt)
+        dt = time_diff(ra, dec, locb, locc)
+        delta1.append(dt[0])
+
+    delta2 = []
+    for t in utc.isot:
+        locb = get_sat_j2000(t, gb_posatt)
+        locf = get_sat_j2000(t, f_poshist)
+        dt = time_diff(ra, dec, locb, locf)
+        delta2.append(dt[0])

@@ -1,94 +1,22 @@
-# -*- coding: utf-8 -*-
-"""
-@author: xuewc<xuewc@ihep.ac.cn>
-"""
-
-from typing import Optional, Union
-
 import astropy.units as u
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
-from astropy.coordinates import GCRS, ITRS, WGS84GeodeticRepresentation
+
+from astropy.coordinates import get_body, SkyCoord, GCRS, ITRS, \
+                                WGS84GeodeticRepresentation
 from astropy.constants import R_earth
 from astropy.io import fits
 from astropy.time import Time
 
-from ..utils.time import utc_to_met
-from .msis.density import column_density
-from .xcom import calculate_cross_section
+from pyda.occult.msis.density import column_density
+from pyda.occult.xcom import calculate_cross_section
+from pyda.utils.coordinate import radec_to_cart
+from pyda.utils.time import met_to_utc
+from pyda.utils.misc import get_sat_j2000, telescope_to_sat, ORBIT_CONFIG
+
+__all__ = ['calc_tangent_height', 'calc_transmis_coeff', 'get_oti']
 
 
-def get_sat_j2000(
-    utc: ArrayLike,
-    orbit_file: str,
-    ext: Optional[Union[int, str]] = 1
-) -> NDArray:
-    """
-    Compute J2000 coordinates of satellite given the time and orbit file.
-
-    Parameters
-    ----------
-    utc : array_like
-        Dates and times, in ISO-8601 format.
-    orbit_file : str
-        File path of the orbit file.
-    ext : int or str, optional
-        Extension index or name of `orbit_file`. The default is 1.
-
-    Returns
-    -------
-    array
-        J2000 coordinates of satellite at given the time point.
-
-    """
-    with fits.open(orbit_file) as hdul:
-        sat = hdul[0].header['TELESCOP']
-        orbit = hdul[ext].data
-
-    if sat == 'HXMT':
-        t, x, y, z, vx, vy, vz = (
-            'TIME',
-            'X', 'Y', 'Z',
-            'VX', 'VY', 'VZ'
-        )
-    elif sat.startswith('GECAM'):
-        t, x, y, z, vx, vy, vz = (
-            'TIME',
-            'X_J2000', 'Y_J2000', 'Z_J2000',
-            'VX_J2000', 'VY_J2000', 'VZ_J2000'
-        )
-
-    elif sat == 'GLAST':
-        t, x, y, z, vx, vy, vz = (
-            'SCLK_UTC',
-            'POS_X', 'POS_Y', 'POS_Z',
-            'VEL_X', 'VEL_Y', 'VEL_Z'
-        )
-        sat = 'Fermi'
-    else:
-        raise ValueError(
-            '`orbit_file` is only supported for "Fermi", "HXMT", and "GECAM"'
-        )
-
-    met = utc_to_met(utc, sat)
-    time_mask = (
-        int(met.min()) <= orbit[t]) & (orbit[t] <= int(met.max())
-    )
-    orbit = orbit[time_mask]
-
-    # get corresponding index of MET in orbit info
-    indices = (met.astype(int) - orbit[t][0]).astype(int)
-    # get the decimal part of MET
-    met_decimal = met - met.astype(int)
-    # use velocities to interpolate coordinate
-    sat_x = orbit[x][indices] + met_decimal*orbit[vx][indices]
-    sat_y = orbit[y][indices] + met_decimal*orbit[vy][indices]
-    sat_z = orbit[z][indices] + met_decimal*orbit[vz][indices]
-
-    return np.column_stack((sat_x, sat_y, sat_z))
-
-
-def calc_tangent_height(src_j2000, utc, orbit_file):
+def calc_tangent_height(src_j2000, utc, file):
     """
     Calculate tangent height of the line of sight.
 
@@ -96,10 +24,10 @@ def calc_tangent_height(src_j2000, utc, orbit_file):
     ----------
     src_j2000 : array_like
         J2000 coordinate (R.A., Dec.) of source.
-    loc_j2000 : array_like
-        Array of J2000 coordinate (x, y, z), in unit m.
-    orbit_file : str
-        File path of the orbit file.
+    utc : array_like
+        Dates and times, in ISO-8601 format.
+    file : str
+        Path of HXMT's orbit, GECAM's posatt or Fermi's poshist file.
 
     Returns
     -------
@@ -112,7 +40,7 @@ def calc_tangent_height(src_j2000, utc, orbit_file):
 
     utc = Time(np.atleast_1d(utc), scale='utc')
 
-    src_j2000 = np.asarray(src_j2000)
+    src_j2000 = np.array(src_j2000, dtype=np.float64, order='C')
     src = GCRS(
         ra=src_j2000[0].repeat(utc.size) * u.deg,
         dec=src_j2000[1].repeat(utc.size) * u.deg,
@@ -121,7 +49,7 @@ def calc_tangent_height(src_j2000, utc, orbit_file):
         ITRS(obstime=utc, representation_type=WGS84GeodeticRepresentation)
     )
 
-    loc_j2000 = get_sat_j2000(utc.value, orbit_file)
+    loc_j2000 = get_sat_j2000(utc.value, file)
     loc = GCRS(
         x=loc_j2000[:, 0] * u.m,
         y=loc_j2000[:, 1] * u.m,
@@ -134,28 +62,32 @@ def calc_tangent_height(src_j2000, utc, orbit_file):
 
     src_x, src_y, src_z = src.x.value, src.y.value, src.z.value
     loc_x, loc_y, loc_z = loc.x.value, loc.y.value, loc.z.value # unit: m
-    a = src_x**2 + src_y**2 + z_factor * src_z**2
+    Rearth = R_earth.value
+    Rearth2 = Rearth*Rearth
+    a = src_x*src_x + src_y*src_y + z_factor * src_z*src_z
     b = 2*(loc_x*src_x + loc_y*src_y + z_factor*loc_z*src_z)
-    c = loc_x**2 + loc_y**2 + z_factor*loc_z**2 - R_earth.value**2
-    hmin = np.sqrt(c + R_earth.value**2 - b*b/4.0/a) - R_earth.value
+    c = loc_x*loc_x + loc_y*loc_y + z_factor*loc_z*loc_z - Rearth2
+    hmin = np.sqrt(c + Rearth2 - b*b/4.0/a) - Rearth
     mask = (a*b > 0.0)
     hmin[mask] = np.linalg.norm(
         [loc_x[mask], loc_y[mask], loc_z[mask]/(1 - f)], axis=0
-    ) - R_earth.value
+    ) - Rearth
 
     return hmin / 1000.0
 
 
 def calc_transmis_coeff(
-    src_j2000: ArrayLike,
-    utc: ArrayLike,
-    energy: ArrayLike,
-    orbit_file: str,
-    step_size: Optional[float] = 0.5,
-    name: Optional[str] = None
-) -> NDArray:
-    src = np.asarray(src_j2000)
-    energy = np.asarray(energy, dtype=np.float64) * 1000  # keV to eV
+    src_j2000,
+    utc,
+    energy,
+    orbit_file,
+    step_size=0.5,
+    name=None
+):
+    src = np.array(src_j2000, dtype=np.float64, order='C')
+
+    energy = np.array(energy, dtype=np.float64, order='C')
+    energy *= 1000.0  # keV to eV
 
     loc = get_sat_j2000(utc, orbit_file)
 
@@ -168,3 +100,58 @@ def calc_transmis_coeff(
     trans_coeff = np.exp(-np.einsum('tE,eE->te', cd ,cs, optimize='optimal'))
 
     return trans_coeff
+
+
+def get_oti(obj, file, alt_range):
+    r"""
+    Get Occultation Time Intervals given the range of line-of-sight altitude.
+
+    Parameters
+    ----------
+    obj : str, or array_like of shape (2,)
+        Celestial object name, or J2000 coordinate (R.A., Dec.).
+    file : str
+        Path of HXMT's orbit, GECAM's posatt or Fermi's poshist file.
+    alt_range : array_like of shape (2,)
+        Range of line-of-sight altitude, in unit of km.
+
+    Returns
+    -------
+    oti : ndarray of shape (n, 2)
+        Occultation Time Intervals.
+
+    """
+    with fits.open(file) as hdu_list:
+        telescope = hdu_list['PRIMARY'].header['TELESCOP']
+        sat = telescope_to_sat(telescope)
+        orbit_ext, t, *_ = ORBIT_CONFIG[sat]
+        met = hdu_list[orbit_ext].data[t]
+
+    utc = met_to_utc(met, sat)
+
+    if type(obj) in [list, tuple] and len(obj) == 2:
+        src_j2000 = radec_to_cart(obj)
+    elif type(obj) == str and obj.lower() in (
+            'sun', 'moon', 'mercury', 'venus', 'earth-moon-barycenter', 'mars',
+            'jupiter', 'saturn', 'uranus', 'neptune'
+    ):
+        src = get_body(obj, met_to_utc(met, sat, True))  # in GCRS frame
+        src_j2000 = src.cartesian.xyz.value.T
+    elif type(obj) == str:
+        src = SkyCoord.from_name(obj, frame='gcrs')
+        src_j2000 = src.cartesian.xyz.value.T
+    else:
+        raise ValueError(f'wrong input {obj=}')
+
+    h = calc_tangent_height(src_j2000, utc, file)
+
+    hmask = (alt_range[0] <= h) & (h <= alt_range[1])
+
+    met = met[hmask]
+    h = h[hmask]
+
+    diff = met[1:] - met[:-1]
+    idx = np.flatnonzero(diff >= 2.0)
+    idx = np.sort([0, *idx, *(idx+1), len(met) - 1]).reshape(-1, 2)
+
+    return met[idx], h[idx]

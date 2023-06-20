@@ -7,11 +7,30 @@ Created on Tue Jan 24 23:59:31 2023
 
 from sys import stdout
 
+import matplotlib.pyplot as plt
 import numpy as np
 import numexpr as ne
 from tqdm import trange
 
-__all__ = ['blocks_tte']
+__all__ = ['blocks_tte', 'plot_blocks']
+
+
+def plot_blocks(t, edges, dt, unit='s'):
+    tmin = edges.min()
+    tmax = edges.max()
+    nbins = round((tmax - tmin)/dt)
+    tbins = np.linspace(tmin, tmax, nbins + 1)
+    tmid = (tbins[:-1] + tbins[1:])/2.0
+    rate_cc = np.histogram(t, tbins)[0]/np.diff(tbins)
+    rate_bb = np.histogram(t, edges)[0]/np.diff(edges)
+    plt.figure()
+    plt.step(tbins, np.append(rate_cc, rate_cc[-1]), c='k', where='post')
+    plt.errorbar(tmid, rate_cc, np.sqrt(rate_cc/np.diff(tbins)), fmt='k ', alpha=0.5)
+    plt.hist(edges[:-1], edges, weights=rate_bb,
+             histtype='barstacked', fill=True, edgecolor='tab:blue', zorder=0, alpha=0.5, lw=0.5, ls=':')
+    plt.xlabel('time [%s]' % unit)
+    plt.ylabel('Rate [%s$^{-1}$]' % unit)
+    plt.xlim(tmin, tmax)
 
 
 def block_binned(tbins, counts, p0=0.05, niter=0):

@@ -26,12 +26,12 @@ def get_utc0(sat, UTCFINIT=None):
         utc0 = '2021-01-01T00:00:00'
     else:
         raise ValueError(
-            "`sat` must be 'Swift', 'Fermi', 'HXMT', 'GECAM-A/B/C'"
+            "`sat` must be one of 'Swift', 'Fermi', 'HXMT', and 'GECAM-A/B/C'"
         )
     return utc0
 
 
-def met_to_utc(met, sat, UTCFINIT=None):
+def met_to_utc(met, sat, return_astropy_time=False, UTCFINIT=None):
     SAT = sat.upper()
 
     # Guide to Times in Swift FITS Files:
@@ -42,7 +42,11 @@ def met_to_utc(met, sat, UTCFINIT=None):
         UTCFINIT = 0.0
 
     utc0 = get_utc0(sat)
-    return (Time(utc0, scale='utc') + (met + UTCFINIT)*s).isot
+    utc = Time(utc0, format='isot', scale='utc') + (met + UTCFINIT)*s
+    if return_astropy_time:
+        return utc
+    else:
+        return utc.isot
 
 
 def utc_to_met(utc, sat, UTCFINIT=None):

@@ -2,14 +2,17 @@
 """
 Created on Sun Apr 16 03:10:05 2023
 
-@author: Wang-Chen Xue < https://orcid.org/0000-0001-8664-5085 >
+@author: Wang-Chen Xue <https://orcid.org/0000-0001-8664-5085>
 """
 
 import numpy as np
+from astropy.coordinates import get_body, SkyCoord
 from astropy.io import fits
 from scipy.spatial.transform import Rotation as R
 
-__all__ = ['source_angle']
+from pyda.utils.time import met_to_utc
+
+__all__ = ['object_angle']
 
 
 def sph_to_cart(theta_phi, deg=True):
@@ -42,8 +45,11 @@ def cart_to_sph(xyz, deg=True):
 
     theta = np.arctan2(norm_xy, z)
     phi = np.arctan2(y, x)
-    neg = phi < 0.0
-    phi[neg] = phi[neg] + 2.0*np.pi
+    if phi.shape == ():
+        phi += 0.0 if phi > 0.0 else 2.0*np.pi
+    else:
+        neg = phi < 0.0
+        phi[neg] = phi[neg] + 2.0*np.pi
 
     if deg:
         theta = np.degrees(theta)
@@ -57,6 +63,11 @@ def cart_to_radec(xyz, deg=True):
     norm_xy = np.linalg.norm((x, y), axis=0)
 
     ra = np.arctan2(y, x)
+    if ra.shape == ():
+        ra += 0.0 if ra > 0.0 else 2.0*np.pi
+    else:
+        neg = ra < 0.0
+        ra[neg] = ra[neg] + 2.0*np.pi
     dec = np.arctan2(z, norm_xy)
 
     if deg:
@@ -232,7 +243,7 @@ def _angle_between2(src_j2000, det_j2000, deg=True):
     return angle
 
 
-def source_angle(ra, dec, t0, tstart, tstop, posatt_file, det=None):
+def object_angle(obj, t0, tstart, tstop, posatt_file, det=None):
     with fits.open(posatt_file) as hdul:
         sat = hdul['PRIMARY'].header['TELESCOP']
         if sat == 'GLAST':
@@ -252,23 +263,41 @@ def source_angle(ra, dec, t0, tstart, tstop, posatt_file, det=None):
         else:
             raise ValueError('POSATT not supported!')
         posatt = hdul[ext].data
-        mask = (t0 + tstart <= posatt[t]) & (posatt[t] <= t0 + tstop)
-        posatt = posatt[mask]
-        met = posatt[t]
-        quat = np.column_stack([posatt[q] for q in Q])
 
-        # !!! : This is a workaround for reading GECAM-C quat, which is in
-        # !!! : wrong order before MET=59537900. This should not be applied to
-        # !!! : the correct posatt file of GECAM-C.
-        if sat == 'GECAM-C':
-            mask = (met <= 59537900)
-            if any(mask):
-                quat[mask] = np.column_stack([posatt[mask][q] for q in Q_pre])
-                print('WARNING: applied workaround for reading GECAM-C quats!')
+    mask = (t0 + tstart <= posatt[t]) & (posatt[t] <= t0 + tstop)
+    posatt = posatt[mask]
+    met = posatt[t]
+    quat = np.column_stack([posatt[q] for q in Q])
+    # !!! : This is a workaround for reading GECAM-C quat, which is in
+    # !!! : wrong order before MET=59537900. This should not be applied to
+    # !!! : the correct posatt file of GECAM-C.
+    if sat == 'GECAM-C':
+        mask = (met <= 59537900)
+        if any(mask):
+            quat[mask] = np.column_stack([posatt[mask][q] for q in Q_pre])
+            print('WARNING: applied workaround for reading GECAM-C quats!')
 
-    src_j2000 = radec_to_cart((ra, dec))
+    if type(obj) in [list, tuple] and len(obj) == 2:
+        src_j2000 = radec_to_cart(obj)
+    elif type(obj) == str and obj.lower() == 'earth':
+        src_j2000 = np.column_stack(
+            (-posatt['X_J2000'], -posatt['Y_J2000'], -posatt['Z_J2000'])
+        )
+    elif type(obj) == str and obj.lower() in (
+        'sun', 'moon', 'mercury', 'venus', 'earth-moon-barycenter', 'mars',
+        'jupiter', 'saturn', 'uranus', 'neptune'
+    ):
+        src = get_body(obj, met_to_utc(met, sat, True)) # in GCRS frame
+        src_j2000 = src.cartesian.xyz.value.T
+    elif type(obj) == str:
+        src = SkyCoord.from_name(obj, frame='gcrs')
+        src_j2000 = src.cartesian.xyz.value.T
+    else:
+        raise ValueError(f'wrong input {obj=}')
+
     src_sat = j2000_to_sat(quat, src_j2000)
     src_payload = sat_to_payload(src_sat, sat)
+    print(src_payload)
     # print(cart_to_sph(src_payload))
     det_payload = get_det_payload(sat, det)
     angle = _angle_between1(src_payload, det_payload)
@@ -283,35 +312,12 @@ def source_angle(ra, dec, t0, tstart, tstop, posatt_file, det=None):
 
 
 if __name__ == '__main__':
-    # angle1 = source_angle(288.263, 19.803, 687014225.05,-np.inf,np.inf,'/Users/xuewc/BurstData/GRB221009A/Fermi_GBM/glg_poshist_all_221008_v00.fit')
-    # angle2 = source_angle(288.263, 19.803, 687014225.05,-np.inf,np.inf,'/Users/xuewc/BurstData/GRB221009A/Fermi_GBM/glg_poshist_all_221009_v00.fit')
-    # angle3 = source_angle(288.263, 19.803, 687014225.05,-np.inf,np.inf,'/Users/xuewc/BurstData/GRB221009A/Fermi_GBM/glg_poshist_all_221010_v00.fit')
-    # angle=np.row_stack((angle1, angle2, angle3))
-    # angle[:,0]=angle[:,0]-687014225.05
-    # np.save('GBM_ANGLE.npy', angle)
-    posatt_file = '/Users/xuewc/Downloads/gc_posatt_221208_03_v00.fits'
-    # with fits.open(posatt_file) as hdul:
-    #     posatt = hdul['Orbit_Attitude'].data
-    # Q = ['Q1', 'Q2', 'Q3', 'Q4']
-    # mask = posatt['TIME'] == 61009857
-    # quat = np.column_stack([posatt[mask][q] for q in Q])
-    # sat = 'HEBS'
-    # det_payload = get_det_payload(sat)
-    # det_sat = payload_to_sat(det_payload, sat)
-    # det_j2000 = sat_to_j2000(quat, det_sat)[0]
-    # det_ra_dec = cart_to_radec(det_j2000)
-    # mask = det_ra_dec[:,0]<0
-    # det_ra_dec[mask,0] = 360+det_ra_dec[mask,0]
-    # import matplotlib.pyplot as plt
-    # plt.figure()
-    # plt.subplot(111, projection="mollweide")
-    # plt.grid()
-    # plt.scatter(det_ra_dec[:,0]/180*np.pi, det_ra_dec[:,1]/180*np.pi)
-    # plt.xlim(0, 2*np.pi)
-    ra = 288.263
-    dec = 19.803
-    # ra, dec = 60.819, -75.379
-    n = 1
+    #60473219.079
+    # angle = object_angle('SGR J1935', 123631619.079, -1, 1, '/Users/xuewc/gb_posatt_221201_22_v00.fits')
+    # ra = 288.263
+    # dec = 19.803
+    ra, dec = 60.819, -75.379
+    n = 4
     det = [None, 'lat'][0]
     posatt = [
         '/Users/xuewc/BurstData/GRB221009A/gb_posatt_221009_13_v00.fits',
@@ -321,9 +327,10 @@ if __name__ == '__main__':
         '/Users/xuewc/Downloads/gc_posatt_230307_15_v00.fits'
     ][n]
     t0 = [119020620.05, 55862220.05, 687014225.05, 131903046.67, 68744646.65][n]
-    tstart = -200
-    tstop = 2000
-    angle = source_angle(ra, dec, t0, tstart, tstop, posatt, det)
+    tstart = 0
+    tstop = 100
+    obj = (ra, dec)
+    angle = object_angle(obj, t0, tstart, tstop, posatt, det)
     import matplotlib.pyplot as plt
     line_style = ['-','--','-.',(0, (3, 1, 1, 1, 1, 1)),':']
     if n == 0 or n == 3:
