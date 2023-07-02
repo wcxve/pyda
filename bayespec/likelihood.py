@@ -1,8 +1,8 @@
+import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
-from pytensor.compile.function import function
 
-__all__ = ['Chi', 'Cstat', 'Pstat', 'PGstat', 'Wstat']
+__all__ = ['Chi2', 'Cstat', 'Pstat', 'PGstat', 'Wstat']
 
 
 def normal_logp(value, mu, sigma, beta):
@@ -17,8 +17,14 @@ def nomal_random(*pars, rng=None, size=None):
 
 def poisson_logp(value, mu, beta):
     gof = beta*(pt.xlogx.xlogx(value) - value)
-    logp = beta*(pt.xlogx.xlogy0(value, mu) - mu)
-    return logp - gof.eval()
+    # logp = beta*(pt.xlogx.xlogy0(value, mu) - mu)
+    # logp = beta * (value*pt.log(mu) - mu)
+    logp = beta * pt.switch(
+        pt.eq(value, 0.0),
+        -mu,
+        value * pt.log(mu) - mu
+    )
+    return logp - gof
 
 
 def poisson_random(*pars, rng=None, size=None):
@@ -88,42 +94,66 @@ def _check_model(model):
             f'photon flux is undefined for "{model.mtype}" type model'
         )
 
-class Chi(Likelihood):
+# TODO: warn if likelihood is not correctly specified for data
+
+class Chi2(Likelihood):
     def __init__(self, model, data, beta=1.0, context=None):
         _check_model(model)
 
-        name = data.name
-        ph_ebins = data.ph_ebins
-        resp_matrix = data.resp_matrix
-        rate = data.spec_counts/data.spec_exposure
-        error = data.spec_error/data.spec_exposure
-        if data.has_back:
-            rate -= data.back_counts/data.back_exposure
-            back_error = data.back_error/data.back_exposure
-            error = pt.sqrt(error*error + back_error*back_error)
-        channel = data.channel
-        chdim = f'channel_{name}'
-
-        NE_dEph = model(ph_ebins)
-        CE_dEch = pm.math.dot(NE_dEph, resp_matrix)
-
         context = pm.modelcontext(context)
-        context.add_coord(chdim, channel)
 
-        setattr(context, f'{name}_data', data)
-        setattr(context, f'{name}_model', model)
-        if hasattr(context, 'data_names'):
+        if not hasattr(context, 'data_names'):
+            context.data_names = []
+
+        name = data.name
+        channel = data.channel
+        chdim = f'{name}_channel'
+
+        counts = data.spec_counts
+        error = data.spec_error
+        if data.has_back:
+            counts = counts - data.back_counts/data.back_exposure*data.spec_exposure
+            back_error = data.back_error/data.back_exposure*data.spec_exposure
+            error = np.sqrt(error*error + back_error*back_error)
+
+        if name not in context.data_names:
             context.data_names.append(name)
-        else:
-            context.data_names = [name]
-        # super().__init__(coords={chdim: channel})
+            context.add_coord(chdim, channel, mutable=True)
+            setattr(context, f'{name}_data', data)
+            setattr(context, f'{name}_model', model)
+            setattr(context, f'_{name}_spec_poisson', False)
+            setattr(context, f'_{name}_include_back', False)
 
-        with context:
-            pm.CustomDist(
-                f'{name}_N', CE_dEch, error, beta,
-                logp=normal_logp, random=nomal_random,
-                observed=rate, dims=chdim
-            )
+            # if data.spec_poisson:
+            #     spec_random = poisson_random
+            # else:
+            #     spec_random = nomal_random
+
+            # the sampling distribution should be the same (?)
+            spec_random = nomal_random
+
+            with context:
+                ph_ebins = pm.MutableData(f'{name}_ph_ebins', data.ph_ebins)
+                resp_matrix = pm.MutableData(f'{name}_resp_matrix', data.resp_matrix)
+                counts = pm.MutableData(f'{name}_spec_counts', counts)
+                error = pm.MutableData(f'{name}_spec_error', error)
+                exposure = pm.MutableData(f'{name}_exposure', data.spec_exposure)
+
+                NE_dEph = model(ph_ebins)
+                CE_dEch = pm.math.dot(NE_dEph, resp_matrix)
+
+                pm.CustomDist(
+                    f'{name}_Non', CE_dEch*exposure, error, beta,
+                    logp=normal_logp, random=spec_random,
+                    observed=counts, dims=chdim
+                )
+        else:
+            context.set_dim(chdim, len(channel), channel)
+            context.set_data(f'{name}_ph_ebins', data.ph_ebins)
+            context.set_data(f'{name}_resp_matrix', data.resp_matrix)
+            context.set_data(f'{name}_spec_counts', counts)
+            context.set_data(f'{name}_spec_error', error)
+            setattr(context, f'{name}_data', data)
 
 
 class Cstat(Likelihood):
@@ -143,34 +173,44 @@ class Cstat(Likelihood):
                 f'instead'
             )
 
-        name = data.name
-        ph_ebins = data.ph_ebins
-        resp_matrix = data.resp_matrix
-        spec_counts = data.spec_counts
-        spec_exposure = data.spec_exposure
-        channel = data.channel
-        chdim = f'channel_{name}'
-
-        NE_dEph = model(ph_ebins)
-        CE_dEch = pm.math.dot(NE_dEph, resp_matrix)
-
         context = pm.modelcontext(context)
-        context.add_coord(chdim, channel)
 
-        setattr(context, f'{name}_data', data)
-        setattr(context, f'{name}_model', model)
-        if hasattr(context, 'data_names'):
+        if not hasattr(context, 'data_names'):
+            context.data_names = []
+
+        name = data.name
+        channel = data.channel
+        chdim = f'{name}_channel'
+
+        if name not in context.data_names:
             context.data_names.append(name)
-        else:
-            context.data_names = [name]
-        # super().__init__(coords={chdim: channel})
+            context.add_coord(chdim, channel, mutable=True)
+            setattr(context, f'{name}_data', data)
+            setattr(context, f'{name}_model', model)
+            setattr(context, f'_{name}_spec_poisson', True)
+            setattr(context, f'_{name}_include_back', False)
 
-        with context:
-            pm.CustomDist(
-                f'{name}_N', CE_dEch*spec_exposure, beta,
-                logp=poisson_logp, random=poisson_random,
-                observed=spec_counts, dims=chdim
-            )
+            with context:
+                ph_ebins = pm.MutableData(f'{name}_ph_ebins',data.ph_ebins)
+                resp_matrix = pm.MutableData(f'{name}_resp_matrix', data.resp_matrix)
+                spec_counts = pm.MutableData(f'{name}_spec_counts', data.spec_counts)
+                spec_exposure = pm.MutableData(f'{name}_spec_exposure', data.spec_exposure)
+
+                NE_dEph = model(ph_ebins)
+                CE_dEch = pm.math.dot(NE_dEph, resp_matrix)
+
+                pm.CustomDist(
+                    f'{name}_Non', CE_dEch*spec_exposure, beta,
+                    logp=poisson_logp, random=poisson_random,
+                    observed=spec_counts, dims=chdim
+                )
+        else:
+            context.set_dim(chdim, len(channel), channel)
+            context.set_data(f'{name}_ph_ebins', data.ph_ebins)
+            context.set_data(f'{name}_resp_matrix', data.resp_matrix)
+            context.set_data(f'{name}_spec_counts', data.spec_counts)
+            context.set_data(f'{name}_spec_exposure', data.spec_exposure)
+            setattr(context, f'{name}_data', data)
 
 
 class Pstat(Likelihood):
@@ -186,41 +226,53 @@ class Pstat(Likelihood):
                 'Background is required for using P-statistics'
             )
 
-        name = data.name
-        ph_ebins = data.ph_ebins
-        resp_matrix = data.resp_matrix
-        spec_counts = data.spec_counts
-        back_counts = data.back_counts
-        spec_exposure = data.spec_exposure
-        back_exposure = data.back_exposure
-        channel = data.channel
-        chdim = f'channel_{name}'
-
-        NE_dEph = model(ph_ebins)
-        CE_dEch = pm.math.dot(NE_dEph, resp_matrix)
-
         context = pm.modelcontext(context)
-        context.add_coord(chdim, channel)
 
-        setattr(context, f'{name}_data', data)
-        setattr(context, f'{name}_model', model)
-        if hasattr(context, 'data_names'):
+        if not hasattr(context, 'data_names'):
+            context.data_names = []
+
+        name = data.name
+        channel = data.channel
+        chdim = f'{name}_channel'
+
+        if name not in context.data_names:
             context.data_names.append(name)
-        else:
-            context.data_names = [name]
-        # super().__init__(coords={chdim: channel})
+            context.add_coord(chdim, channel, mutable=True)
+            setattr(context, f'{name}_data', data)
+            setattr(context, f'{name}_model', model)
+            setattr(context, f'_{name}_spec_poisson', True)
+            setattr(context, f'_{name}_include_back', False)
 
-        with context:
-            back_rate = back_counts/back_exposure
-            pm.CustomDist(
-                f'{name}_Non', (CE_dEch + back_rate)*spec_exposure, beta,
-                logp=poisson_logp, random=poisson_random,
-                observed=spec_counts, dims=chdim
-            )
+            with context:
+                ph_ebins = pm.MutableData(f'{name}_ph_ebins',data.ph_ebins)
+                resp_matrix = pm.MutableData(f'{name}_resp_matrix', data.resp_matrix)
+                spec_counts = pm.MutableData(f'{name}_spec_counts', data.spec_counts)
+                back_counts = pm.MutableData(f'{name}_back_counts', data.back_counts)
+                spec_exposure = pm.MutableData(f'{name}_spec_exposure', data.spec_exposure)
+                back_exposure = pm.MutableData(f'{name}_back_exposure', data.back_exposure)
+
+                NE_dEph = model(ph_ebins)
+                CE_dEch = pm.math.dot(NE_dEph, resp_matrix)
+
+                back_rate = back_counts/back_exposure
+                pm.CustomDist(
+                    f'{name}_Non', (CE_dEch + back_rate)*spec_exposure, beta,
+                    logp=poisson_logp, random=poisson_random,
+                    observed=spec_counts, dims=chdim
+                )
+        else:
+            context.set_dim(chdim, len(channel), channel)
+            context.set_data(f'{name}_ph_ebins', data.ph_ebins)
+            context.set_data(f'{name}_resp_matrix', data.resp_matrix)
+            context.set_data(f'{name}_spec_counts', data.spec_counts)
+            context.set_data(f'{name}_back_counts', data.back_counts)
+            context.set_data(f'{name}_spec_exposure', data.spec_exposure)
+            context.set_data(f'{name}_back_exposure', data.back_exposure)
+            setattr(context, f'{name}_data', data)
 
 
 class PGstat(Likelihood):
-    def __init__(self, model, data, beta=1.0, store_bkg=False, context=None):
+    def __init__(self, model, data, beta=1.0, context=None):
         _check_model(model)
 
         if not data.spec_poisson:
@@ -232,54 +284,75 @@ class PGstat(Likelihood):
                 'Background is required for using PG-statistics'
             )
 
-        name = data.name
-        ph_ebins = data.ph_ebins
-        resp_matrix = data.resp_matrix
-        spec_counts = data.spec_counts
-        back_counts = data.back_counts
-        back_error = data.back_error
-        spec_exposure = data.spec_exposure
-        back_exposure = data.back_exposure
-        channel = data.channel
-        chdim = f'channel_{name}'
-
-        NE_dEph = model(ph_ebins)
-        CE_dEch = pm.math.dot(NE_dEph, resp_matrix)
-
         context = pm.modelcontext(context)
-        context.add_coord(chdim, channel)
 
-        setattr(context, f'{name}_data', data)
-        setattr(context, f'{name}_model', model)
-        if hasattr(context, 'data_names'):
+        if not hasattr(context, 'data_names'):
+            context.data_names = []
+
+        name = data.name
+        channel = data.channel
+        chdim = f'{name}_channel'
+
+        if name not in context.data_names:
             context.data_names.append(name)
+            context.add_coord(chdim, channel, mutable=True)
+            setattr(context, f'{name}_data', data)
+            setattr(context, f'{name}_model', model)
+            setattr(context, f'_{name}_spec_poisson', True)
+            setattr(context, f'_{name}_include_back', True)
+            setattr(context, f'_{name}_back_poisson', False)
+
+            # if data.back_poisson:
+            #     back_random = poisson_random
+            # else:
+            #     back_random = nomal_random
+
+            # the sampling distribution should be the same (?)
+            back_random = nomal_random
+
+            with context:
+                ph_ebins = pm.MutableData(f'{name}_ph_ebins',data.ph_ebins)
+                resp_matrix = pm.MutableData(f'{name}_resp_matrix', data.resp_matrix)
+                spec_counts = pm.MutableData(f'{name}_spec_counts', data.spec_counts)
+                back_counts = pm.MutableData(f'{name}_back_counts', data.back_counts)
+                back_error = pm.MutableData(f'{name}_back_error', data.back_error)
+                spec_exposure = pm.MutableData(f'{name}_spec_exposure', data.spec_exposure)
+                back_exposure = pm.MutableData(f'{name}_back_exposure', data.back_exposure)
+
+                NE_dEph = model(ph_ebins)
+                CE_dEch = pm.math.dot(NE_dEph, resp_matrix)
+
+                s = CE_dEch * spec_exposure
+                a = spec_exposure/back_exposure
+                b = pgstat_background(s, spec_counts, back_counts, back_error, a)
+
+                pm.CustomDist(
+                    f'{name}_Non', s + a*b, beta,
+                    logp=poisson_logp, random=poisson_random,
+                    observed=spec_counts, dims=chdim
+                )
+
+                pm.CustomDist(
+                    f'{name}_Noff', b, back_error, beta,
+                    logp=normal_logp, random=back_random,
+                    observed=back_counts, dims=chdim
+                )
+
+                pm.Deterministic(f'{name}_BKGPG', b/back_exposure, dims=chdim)
         else:
-            context.data_names = [name]
-        # super().__init__(coords={chdim: channel})
-
-        with context:
-            s = CE_dEch * spec_exposure
-            a = spec_exposure/back_exposure
-            b = pgstat_background(s, spec_counts, back_counts, back_error, a)
-
-            pm.CustomDist(
-                f'{name}_Non', s + a*b, beta,
-                logp=poisson_logp, random=poisson_random,
-                observed=spec_counts, dims=chdim
-            )
-
-            pm.CustomDist(
-                f'{name}_Noff', b, back_error, beta,
-                logp=normal_logp, random=nomal_random,
-                observed=back_counts, dims=chdim
-            )
-
-            if store_bkg:
-                pm.Deterministic(f'{name}_BKG', b/back_exposure, dims=chdim)
+            context.set_dim(chdim, len(channel), channel)
+            context.set_data(f'{name}_ph_ebins', data.ph_ebins)
+            context.set_data(f'{name}_resp_matrix', data.resp_matrix)
+            context.set_data(f'{name}_spec_counts', data.spec_counts)
+            context.set_data(f'{name}_back_counts', data.back_counts)
+            context.set_data(f'{name}_back_error', data.back_error)
+            context.set_data(f'{name}_spec_exposure', data.spec_exposure)
+            context.set_data(f'{name}_back_exposure', data.back_exposure)
+            setattr(context, f'{name}_data', data)
 
 
 class Wstat(Likelihood):
-    def __init__(self, model, data, beta=1.0, store_bkg=False, context=None):
+    def __init__(self, model, data, beta=1.0, store_bkg=True, context=None):
         _check_model(model)
 
         if not data.spec_poisson:
@@ -291,46 +364,57 @@ class Wstat(Likelihood):
                 'Poisson background is required for using W-statistics'
             )
 
-        name = data.name
-        ph_ebins = data.ph_ebins
-        resp_matrix = data.resp_matrix
-        spec_counts = data.spec_counts
-        back_counts = data.back_counts
-        spec_exposure = data.spec_exposure
-        back_exposure = data.back_exposure
-        channel = data.channel
-        chdim = f'channel_{name}'
-
-        NE_dEph = model(ph_ebins)
-        CE_dEch = pm.math.dot(NE_dEph, resp_matrix)
-
         context = pm.modelcontext(context)
-        context.add_coord(chdim, channel)
 
-        setattr(context, f'{name}_data', data)
-        setattr(context, f'{name}_model', model)
-        if hasattr(context, 'data_names'):
+        if not hasattr(context, 'data_names'):
+            context.data_names = []
+
+        name = data.name
+        channel = data.channel
+        chdim = f'{name}_channel'
+
+        if name not in context.data_names:
             context.data_names.append(name)
+            context.add_coord(chdim, channel, mutable=True)
+            setattr(context, f'{name}_data', data)
+            setattr(context, f'{name}_model', model)
+            setattr(context, f'_{name}_spec_poisson', True)
+            setattr(context, f'_{name}_include_back', True)
+            setattr(context, f'_{name}_back_poisson', True)
+
+            with context:
+                ph_ebins = pm.MutableData(f'{name}_ph_ebins',data.ph_ebins)
+                resp_matrix = pm.MutableData(f'{name}_resp_matrix', data.resp_matrix)
+                spec_counts = pm.MutableData(f'{name}_spec_counts', data.spec_counts)
+                back_counts = pm.MutableData(f'{name}_back_counts', data.back_counts)
+                spec_exposure = pm.MutableData(f'{name}_spec_exposure', data.spec_exposure)
+                back_exposure = pm.MutableData(f'{name}_back_exposure', data.back_exposure)
+
+                NE_dEph = model(ph_ebins)
+                CE_dEch = pm.math.dot(NE_dEph, resp_matrix)
+                s = CE_dEch * spec_exposure
+                a = spec_exposure/back_exposure
+                b = wstat_background(s, spec_counts, back_counts, a)
+
+                pm.CustomDist(
+                    f'{name}_Non', s + a*b, beta,
+                    logp=poisson_logp, random=poisson_random,
+                    observed=spec_counts, dims=chdim
+                )
+
+                pm.CustomDist(
+                    f'{name}_Noff', b, beta,
+                    logp=poisson_logp, random=poisson_random,
+                    observed=back_counts, dims=chdim
+                )
+
+                pm.Deterministic(f'{name}_BKGW', b/back_exposure, dims=chdim)
         else:
-            context.data_names = [name]
-        # super().__init__(coords={chdim: channel})
-
-        with context:
-            s = CE_dEch * spec_exposure
-            a = spec_exposure/back_exposure
-            b = wstat_background(s, spec_counts, back_counts, a)
-
-            pm.CustomDist(
-                f'{name}_Non', s + a*b, beta,
-                logp=poisson_logp, random=poisson_random,
-                observed=spec_counts, dims=chdim
-            )
-
-            pm.CustomDist(
-                f'{name}_Noff', b, beta,
-                logp=poisson_logp, random=poisson_random,
-                observed=back_counts, dims=chdim
-            )
-
-            if store_bkg:
-                pm.Deterministic(f'{name}_BKG', b/back_exposure, dims=chdim)
+            context.set_dim(chdim, len(channel), channel)
+            context.set_data(f'{name}_ph_ebins', data.ph_ebins)
+            context.set_data(f'{name}_resp_matrix', data.resp_matrix)
+            context.set_data(f'{name}_spec_counts', data.spec_counts)
+            context.set_data(f'{name}_back_counts', data.back_counts)
+            context.set_data(f'{name}_spec_exposure', data.spec_exposure)
+            context.set_data(f'{name}_back_exposure', data.back_exposure)
+            setattr(context, f'{name}_data', data)

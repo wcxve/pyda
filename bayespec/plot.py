@@ -1,14 +1,18 @@
+import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
+import scienceplots
 
 from corner import corner
-from pymc import find_MAP, modelcontext
+from pymc import modelcontext
 from scipy.interpolate import splev, splrep
 from scipy.spatial import ConvexHull
 from scipy.stats import chi2
 
+from pyda.bayespec.inference import find_MLE
+
 __all__ = [
-    'plot_corner', 'plot_spec', 'calc_vFv'
+    'plot_corner', 'plot_spec', 'plot_trace', 'calc_vFv'
 ]
 
 KEVTOERGS = 1.6021766339999e-9
@@ -25,10 +29,13 @@ def plot_corner(
         [0.393, 0.683, 0.9]  # 1-sigma for 2d, 68.3% and 90%
     ]
 
+    # exclude profiled background
+    var_names = [p for p in idata.posterior.data_vars if '_BKG' not in p]
     fig = corner(
-        data=idata,
-        bins=40,
-        quantiles=[0.15865, 0.5, 0.84135],
+        data=idata.posterior,
+        var_names=var_names,
+        bins=kwargs.pop('bins', 40),
+        quantiles=kwargs.pop('quantiles', [0.15865, 0.5, 0.84135]),
         levels=CL[level_idx],
         show_titles=True,
         title_fmt='.2f',
@@ -52,14 +59,15 @@ def plot_corner(
     )
 
     if (delta1d or delta2d) and hasattr(idata, 'log_likelihood'):
-        nvars = len(idata.posterior.data_vars)
+        nvars = len(var_names)
         dims_to_sum = [
             d for d in idata.log_likelihood._dims if d not in ['chain', 'draw']
         ]
         lnL = idata.log_likelihood.sum(dims_to_sum).to_array().sum('variable')
         lnL = lnL.values.reshape(-1)
         lnL_max = lnL.max()
-        pars = idata.posterior.to_array().to_numpy().reshape(nvars, -1)
+        pars = [idata.posterior[p].values.reshape(-1) for p in var_names]
+        pars = np.array(pars)
 
         if delta1d:
             for i in range(nvars):
@@ -100,11 +108,17 @@ def plot_corner(
     return fig
 
 
+def plot_trace(idata):
+    var_names = [p for p in idata.posterior.data_vars if '_BKG' not in p]
+    az.plot_trace(idata, var_names=var_names)
+
+
 def plot_spec(plot_cmd='ldata delchi', model_context=None, idata=None, show_pars=[], **kwargs):
     # colors = ["#0d49fb", "#e6091c", "#26eb47", "#8936df", "#fec32d", "#25d7fd"]
     # colors = ['#4477AA', '#EE6677', '#228833', '#CCBB44', '#66CCEE', '#AA3377',
     #           '#BBBBBB']
     colors = ['#0C5DA5', '#00B945', '#FF9500', '#FF2C00', '#845B97', '#474747', '#9e9e9e']
+    plt.style.use(['nature', 'science', 'no-latex'])
     fig, axes = plt.subplots(
         3, 1,
         sharex=True,
@@ -115,44 +129,46 @@ def plot_spec(plot_cmd='ldata delchi', model_context=None, idata=None, show_pars
     fig.subplots_adjust(hspace=0, wspace=0)
     fig.align_ylabels(axes)
 
-    MAP, opt_res = find_MAP(model=model_context,
-                            include_transformed=False,
-                            return_raw=True,
-                            **kwargs)
-    print(f'grad={np.linalg.norm(opt_res.jac):.3e}',
-          {p: np.around(MAP[p], 3) for p in MAP})
+    model_context = modelcontext(model_context)
+    mle_res = find_MLE(model_context)
+    par_names = [i.name for i in model_context.free_RVs]
+    mle = {i: mle_res[i] for i in mle_res if i in par_names}
+    print(f'grad={np.linalg.norm(mle_res["grad"]):.3e}',
+          {p: np.around(mle[p], 3) for p in mle})
 
     for i, data_name in enumerate(model_context.data_names):
         color = colors[i]
         data = getattr(model_context, f'{data_name}_data')
-        if i == 1:
-            tinfo = [int(data._spec_data['TIME'][0]),
-                     int(data._spec_data['ENDTIME'][0])]
-            axes[0].annotate(tinfo,
-                             xy=(0.96, 0.95), xycoords='axes fraction',
-                             ha='right', va='top')
+        # if i == 1:
+        #     tinfo = [int(data._spec_data['TIME'][0]),
+        #              int(data._spec_data['ENDTIME'][0])]
+        #     axes[0].annotate(tinfo,
+        #                      xy=(0.96, 0.95), xycoords='axes fraction',
+        #                      ha='right', va='top')
         if i == 0 and len(show_pars):
             pars_info = []
             for pname in show_pars:
-                pars_info.append(f'{pname}: {MAP[pname]: .2f}')
+                pars_info.append(f'{pname}: {mle[pname]: .2f}')
             axes[0].annotate('\n'.join(pars_info),
                              xy=(0.04, 0.05), xycoords='axes fraction',
                              ha='left', va='bottom')
-        CE = getattr(model_context, f'{data_name}_CE')
-        pars = {j: MAP[j] for j in MAP if j in CE.finder}
-        CE = CE(**pars)
+        CE = getattr(getattr(model_context, f'{data_name}_model'), 'CE')
+        pars = {j: mle[j] for j in mle if j in CE.finder}
+        other = {j: getattr(data, j) for j in CE.finder
+                  if type(j) == str and j not in mle}
+        CE = CE(**pars, **other)
 
-        emid = np.sqrt(data.ch_ebins[:, 0] * data.ch_ebins[:, 1])
-        eerr = np.abs(data.ch_ebins.T - emid)
-        ebin_width = data.ch_ebins[:, 1] - data.ch_ebins[:, 0]
-        net = (
-                          data.spec_counts / data.spec_exposure - data.back_counts / data.back_exposure) / ebin_width
+        emid = np.sqrt(data.ch_emin * data.ch_emax)
+        eerr = np.abs([data.ch_emin, data.ch_emax] - emid)
+        ebin_width = data.ch_emax - data.ch_emin
+        net = (data.spec_counts / data.spec_exposure
+               - data.back_counts / data.back_exposure) / ebin_width
         net_err = np.sqrt(
             np.square(data.spec_error / data.spec_exposure)
             + np.square(data.back_error / data.back_exposure)
         ) / ebin_width
-        if f'{data_name}_f' in MAP:
-            factor = MAP[f'{data_name}_f']
+        if f'{data_name}_f' in mle:
+            factor = mle[f'{data_name}_f']
             label = f'{data_name} ({factor:.2f})'
         else:
             label = f'{data_name}'
@@ -160,22 +176,20 @@ def plot_spec(plot_cmd='ldata delchi', model_context=None, idata=None, show_pars
                          label=label)
         axes[0].loglog()
 
-        mask = data.ch_ebins[1:, 0] != data.ch_ebins[:-1, 1]
+        mask = data.ch_emin[1:] != data.ch_emax[:-1]
         idx = [
             0,
             *(np.flatnonzero(mask) + 1),
-            len(data.ch_ebins)
+            len(data.channel)
         ]
-        net_cumsum = (
-                    data.spec_counts - data.back_counts / data.back_exposure * data.spec_exposure).cumsum()
+        net_cumsum = (data.spec_counts
+                      - data.back_counts / data.back_exposure * data.spec_exposure).cumsum()
         CE_cumsum = (CE * ebin_width * data.spec_exposure).cumsum()
-        cumsum_max = max(net_cumsum.max(), CE_cumsum.max())
-        net_cumsum /= cumsum_max
-        CE_cumsum /= cumsum_max
+        net_cumsum /= net_cumsum[-1]
+        CE_cumsum /= CE_cumsum[-1]
         for k in range(len(idx) - 1):
             slice_k = slice(idx[k], idx[k + 1])
-            ch_ebins_k = data.ch_ebins[slice_k]
-            ch_ebins_k = np.append(ch_ebins_k[:, 0], ch_ebins_k[-1, 1])
+            ch_ebins_k = np.append(data.ch_emin[slice_k], data.ch_emax[slice_k][-1])
             CE_k = CE[slice_k]
             CE_k = np.append(CE_k, CE_k[-1])
             CE_cumsum_k = CE_cumsum[slice_k]
@@ -211,6 +225,7 @@ def plot_spec(plot_cmd='ldata delchi', model_context=None, idata=None, show_pars
     # axes[1].set_ylim(-3.9, 3.9)
     # ylim = np.abs(axes[1].get_ylim()).max()
     # axes[1].set_ylim(-ylim, ylim)
+    plt.style.use('default')
 
 
 def calc_vFv(idata, model_context=None, data_names=None, q=0.683, ndraw=1000):

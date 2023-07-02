@@ -368,7 +368,8 @@ class Data:
         chmask = np.any(chmask, axis=0)
 
         self.channel = groups_channel[chmask]
-        self.ch_ebins = groups_ch_ebins[chmask]
+        self.ch_emin = groups_ch_ebins[chmask, 0]
+        self.ch_emax = groups_ch_ebins[chmask, 1]
         self.resp_matrix = resp_matrix[:, chmask]
 
         spec_counts = np.where(good_quality, self._spec_counts, 0)
@@ -392,13 +393,13 @@ class Data:
                 'spec_poisson': self.spec_poisson,
                 'spec_exposure': self.spec_exposure,
                 'ph_ebins': self.ph_ebins,
-                'ch_ebins': (['channel', 'edge'], self.ch_ebins),
+                'ch_emin': ('channel', self.ch_emin),
+                'ch_emax': ('channel', self.ch_emax),
                 'resp_matrix': (['channel_in', 'channel'], self.resp_matrix),
             },
             coords={
                 'channel_in': self.ichannel,
                 'channel': self.channel,
-                'edge': ['start', 'stop']
             }
         )
 

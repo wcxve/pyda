@@ -1,14 +1,12 @@
-from . import data
-from . import likelihood
-from . import plot
-from . import model
+from . import xsmodel
 from .data import *
 from .inference import *
 from .likelihood import *
-from .plot import *
 from .model import *
+from .plot import *
 
 __all__ = []
+__all__.append('xsmodel')
 __all__.extend(data.__all__)
 __all__.extend(inference.__all__)
 __all__.extend(likelihood.__all__)

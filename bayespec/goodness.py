@@ -18,8 +18,7 @@ def CvMstat(data, model):
     modelc = model.cumsum()
     datac = data.cumsum()
     maxmodelc = modelc.max()
-    cvm = ((
-                   modelc / maxmodelc - datac / datac.max()) ** 2 * model / maxmodelc).mean()
+    cvm = ((modelc / maxmodelc - datac / datac.max()) ** 2 * model / maxmodelc).mean()
     return cvm
 
 
