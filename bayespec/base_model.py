@@ -217,6 +217,7 @@ class AutoGradOp:
 
 
 class SpectralModel:
+    name = ''
     def __init__(self, op, mtype):
         if mtype not in ['add', 'mul', 'con']:
             raise ValueError(

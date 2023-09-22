@@ -113,7 +113,7 @@ def plot_trace(idata):
     az.plot_trace(idata, var_names=var_names)
 
 
-def plot_spec(plot_cmd='ldata delchi', model_context=None, idata=None, show_pars=[], **kwargs):
+def plot_spec(model_context=None, show_pars=None):
     # colors = ["#0d49fb", "#e6091c", "#26eb47", "#8936df", "#fec32d", "#25d7fd"]
     # colors = ['#4477AA', '#EE6677', '#228833', '#CCBB44', '#66CCEE', '#AA3377',
     #           '#BBBBBB']
@@ -133,8 +133,7 @@ def plot_spec(plot_cmd='ldata delchi', model_context=None, idata=None, show_pars
     mle_res = find_MLE(model_context)
     par_names = [i.name for i in model_context.free_RVs]
     mle = {i: mle_res[i] for i in mle_res if i in par_names}
-    print(f'grad={np.linalg.norm(mle_res["grad"]):.3e}',
-          {p: np.around(mle[p], 3) for p in mle})
+    print(mle_res)
 
     for i, data_name in enumerate(model_context.data_names):
         color = colors[i]
@@ -145,7 +144,7 @@ def plot_spec(plot_cmd='ldata delchi', model_context=None, idata=None, show_pars
         #     axes[0].annotate(tinfo,
         #                      xy=(0.96, 0.95), xycoords='axes fraction',
         #                      ha='right', va='top')
-        if i == 0 and len(show_pars):
+        if i == 0 and show_pars is not None:
             pars_info = []
             for pname in show_pars:
                 pars_info.append(f'{pname}: {mle[pname]: .2f}')
@@ -174,7 +173,6 @@ def plot_spec(plot_cmd='ldata delchi', model_context=None, idata=None, show_pars
             label = f'{data_name}'
         axes[0].errorbar(emid, net, net_err, eerr, fmt=' ', c=color, lw=0.7,
                          label=label)
-        axes[0].loglog()
 
         mask = data.ch_emin[1:] != data.ch_emax[:-1]
         idx = [
@@ -185,30 +183,36 @@ def plot_spec(plot_cmd='ldata delchi', model_context=None, idata=None, show_pars
         net_cumsum = (data.spec_counts
                       - data.back_counts / data.back_exposure * data.spec_exposure).cumsum()
         CE_cumsum = (CE * ebin_width * data.spec_exposure).cumsum()
+        # net_cumsum = net.cumsum()
+        # CE_cumsum = CE.cumsum()
+        plot_CE_cumsum = net_cumsum[-1] > 0.0
+        CE_cumsum /= net_cumsum[-1]
         net_cumsum /= net_cumsum[-1]
-        CE_cumsum /= CE_cumsum[-1]
         for k in range(len(idx) - 1):
             slice_k = slice(idx[k], idx[k + 1])
             ch_ebins_k = np.append(data.ch_emin[slice_k], data.ch_emax[slice_k][-1])
             CE_k = CE[slice_k]
             CE_k = np.append(CE_k, CE_k[-1])
-            CE_cumsum_k = CE_cumsum[slice_k]
-            CE_cumsum_k = np.append(CE_cumsum_k, CE_cumsum_k[-1])
             axes[0].step(ch_ebins_k, CE_k, where='post', c=color, lw=1.3)
-            axes[1].step(ch_ebins_k, CE_cumsum_k, where='post', c=color, lw=1.3)
+            if plot_CE_cumsum:
+                CE_cumsum_k = CE_cumsum[slice_k]
+                CE_cumsum_k = np.append(CE_cumsum_k, CE_cumsum_k[-1])
+                axes[1].step(ch_ebins_k, CE_cumsum_k, where='post', c=color, lw=1.3)
         axes[1].errorbar(emid, net_cumsum, xerr=eerr, fmt=' ', zorder=2,
                          c=color, lw=1)
-        axes[1].set_ylabel('EDF')
         # axes[1].errorbar(emid, net/CE, net_err/CE, eerr, fmt=' ', zorder=2, c=color, lw=1)
         # axes[1].axhline(1, ls='-', c='#00FF00', zorder=0, lw=1)
         # axes[1].set_ylabel('data/model')
         axes[2].errorbar(emid, (net - CE) / net_err, 1, eerr, fmt=' ',
                          zorder=2, c=color, lw=1)
-        axes[2].axhline(0, ls='-', c='#00FF00', zorder=0, lw=1)
-        # axes[2].set_ylabel('(data$\,-\,$model)$\,$/$\,$error')
-        axes[2].set_ylabel('$\chi$')
-        axes[-1].set_xlabel('Energy [keV]')
-        axes[0].set_ylabel('$C_E$ [s$^{-1}$ keV$^{-1}$]')
+    axes[0].loglog()
+    axes[1].set_ylabel('EDF')
+    axes[1].set_ylim(bottom=0.0)
+    axes[2].axhline(0, ls='-', c='#00FF00', zorder=0, lw=1)
+    # axes[2].set_ylabel('(data$\,-\,$model)$\,$/$\,$error')
+    axes[2].set_ylabel('$\chi$')
+    axes[-1].set_xlabel('Energy [keV]')
+    axes[0].set_ylabel('$C_E$ [s$^{-1}$ keV$^{-1}$]')
 
     # axes[1].set_yticks([-3,-2,-1,0,1,2,3])
     # axes[1].set_yticklabels([-3,-2,-1,0,1,2,3], ha='center')

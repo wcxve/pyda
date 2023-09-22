@@ -12,7 +12,7 @@ from astropy.units import s
 __all__ = ['met_to_utc', 'utc_to_met']
 
 
-def get_utc0(sat, UTCFINIT=None):
+def get_utc0(sat):
     SAT = sat.upper()
     if SAT == 'SWIFT':
         utc0 = '2001-01-01T00:00:00'

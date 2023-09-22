@@ -14,15 +14,16 @@ class Data:
     def __init__(
         self, erange, specfile,
         backfile=None, respfile=None, ancrfile=None, name=None,
-        statistic='chi', ignore_bad=True, keep_channel_info=False
+        ignore_bad=True, keep_channel_info=False
+        # ,statistic='chi'
     ):
-        if statistic not in ['chi', 'cstat', 'pstat', 'pgstat', 'wstat']:
-            raise ValueError(
-                'available likelihood statistics are chi, cstat, pstat, pgstat'
-                ' and wstat'
-            )
-        else:
-            self.statistic = statistic
+        # if statistic not in ['chi', 'cstat', 'pstat', 'pgstat', 'wstat']:
+        #     raise ValueError(
+        #         'available likelihood statistics are chi, cstat, pstat, pgstat'
+        #         ' and wstat'
+        #     )
+        # else:
+        #     self.statistic = statistic
 
         self._extract_spec(specfile)
         self._set_name(name)

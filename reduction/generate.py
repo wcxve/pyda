@@ -3,7 +3,7 @@ from astropy.io import fits
 
 import pyda
 
-__all__ = ['gecam_phaii_poisson']
+__all__ = ['gecam_phaii_gaussian', 'gecam_phaii_poisson']
 
 
 def gecam_phaii_gaussian(
@@ -153,12 +153,20 @@ def generate_phaii_gaussian_error(
         quality = np.zeros_like(counts)
 
     if backfile is not None:
-        backfile = np.array(backfile, dtype=str)
-        if not backfile.shape == tstart.shape:
-            raise ValueError(
-                f'backfile {backfile.shape} and tstart {tstart.shape} are not '
-                'matched'
-            )
+        if type(backfile) is str:
+            if '{' in backfile and '}' in backfile:
+                backfile = np.array([backfile] * tstart.size)
+            else:
+                backfile = np.array(
+                    [backfile + '{%d}' % (i+1) for i in range(tstart.size)],
+                )
+        else:
+            backfile = np.array(backfile, dtype=str)
+            if not backfile.shape == tstart.shape:
+                raise ValueError(
+                    f'backfile {backfile.shape} and tstart {tstart.shape} are '
+                    'not matched'
+                )
     else:
         backfile = np.array(['' for _ in range(tstart.size)], dtype=str)
 
@@ -313,10 +321,12 @@ def generate_phaii_poisson_error(
 
     if backfile is not None:
         if type(backfile) is str:
-            backfile = np.array(
-                [backfile+f'{{{i+1}}}' for i in range(tstart.size)],
-                dtype=str
-        )
+            if '{' in backfile and '}' in backfile:
+                backfile = np.array([backfile] * tstart.size)
+            else:
+                backfile = np.array(
+                    [backfile + '{%d}' % (i+1) for i in range(tstart.size)],
+                )
         else:
             backfile = np.array(backfile, dtype=str)
             if not backfile.shape == tstart.shape:

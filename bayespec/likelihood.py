@@ -34,7 +34,7 @@ def poisson_random(*pars, rng=None, size=None):
 def pgstat_background(s, n, b_est, sigma, a):
     sigma2 = sigma*sigma
     e = b_est - a*sigma2
-    f = n*sigma2 + e*s
+    f = a*sigma2*n + e*s
     c = a*e - s
     d = pt.sqrt(c*c + 4.0*a*f)
     b = pt.switch(
@@ -46,6 +46,11 @@ def pgstat_background(s, n, b_est, sigma, a):
         ),
         0.0
     )
+    # b = pt.switch(
+    #     pt.gt(n, 0.0),
+    #     (c + d) / (2 * a),
+    #     e
+    # )
     return b
 
 

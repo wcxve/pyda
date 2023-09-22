@@ -85,7 +85,7 @@ def plot_gbm_thist(
                 ax.axvline(vline, c='r', ls='--', lw=0.618)
 
         if bkg_f is not None:
-            bkg = gbm_thist(bkg_f, trange, erange, dt, t0_bkg)
+            bkg = gbm_thist(bkg_f, erange, trange, dt, t0_bkg)
             ax.step(
                 bkg.time, bkg.counts / bkg.exposure,
                 c='orange', alpha=0.618, where='mid', zorder=0
@@ -124,8 +124,10 @@ def plot_gbm_thist(
 
 
 if __name__ == '__main__':
-    path = '/Users/xuewc/BurstData/GRB230511A/GBM'
-    utc0 = '2023-05-11T13:08:30.718'
-    trange = [-50,150]
-    dt = 0.5
-    fig, axes = plot_gbm_thist(path, utc0, trange, dt)
+    path = '/Users/xuewc/BurstData/GRB221009A/Fermi_GBM'
+    utc0 = '2022-10-09T13:17:00.050'
+    trange = [550,1650]
+    dt = 5
+    fig, axes = plot_gbm_thist(path, utc0, trange, dt,
+                               bkg_t=-85612,
+                               bkg_path='/Users/xuewc/BurstData/GRB221009A/Fermi_GBM/bkg')

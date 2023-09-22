@@ -397,10 +397,37 @@ def plot_gecam_tehist(evt_file, t0, tstart, tstop, dt, emin=8.0, emax=8000.0):
 
 
 if __name__ == '__main__':
-    # evt_file = '/Users/xuewc/BurstData/GRB221009A/gcg_evt_221009_12_v05.fits'
-    # t0 = utc_to_met('2022-10-09T12:00:20', 'GECAM-C')
-    evt_file = '/Users/xuewc/BurstData/GRB230307A/GECAM-B/gbg_evt_230307_15_v01.fits'
-    t0 = utc_to_met('2023-03-07T15:44:06.670', 'GECAM-B')
-    fig, axes = plot_gecam_thist(evt_file, t0, -1, 70, 1)
-    fig, axes = plot_gecam_tehist(evt_file, t0, -1, 70, 0.1)
-    fig, axes = plot_gecam_ehist(evt_file, t0, trange=[-1, 70])
+    evt_file = '/Users/xuewc/BurstData/GRB221009A/gcg_evt_221009_12_v05.fits'
+    t0 = utc_to_met('2022-10-09T12:00:20', 'GECAM-C')
+    # evt_file = '/Users/xuewc/BurstData/GRB230307A/GECAM-B/gbg_evt_230307_15_v01.fits'
+    # t0 = utc_to_met('2023-03-07T15:44:06.670', 'GECAM-B')
+    fig, axes = plot_gecam_thist(evt_file, t0, -100, 200, 1)
+    fig, axes = plot_gecam_tehist(evt_file, t0, -10, 70, 0.1)
+    # fig, axes = plot_gecam_ehist(evt_file, t0, trange=[-1, 70])
+
+
+    # evt_file = '/Users/xuewc/Desktop/工作进展/misc/gcg_evt_230715_07_v00.fits'
+    # t0 = utc_to_met('2023-07-15T07:11:02.400', 'GECAM-C')
+    # fig, axes = plot_gecam_thist(evt_file, t0, -10, 20, 0.1)
+    # fig, axes = plot_gecam_tehist(evt_file, t0, -10, 20, 0.1)
+
+    # >>> 分能段光变 >>>
+    # dets = [1, 3, 7, 8, 11]
+    # lc_list = []
+    # for det in dets:
+    #     lc = gecam_tehist(evt_file, det, 0, [6, 330], [-10,20], 0.1, t0)
+    #     idx = np.arange(0, lc.channel.size, 40)
+    #     lc_list.append(np.add.reduceat(lc.rate.values, idx, axis=0))
+    #
+    # lc_sum = np.sum(lc_list, axis=0)
+    # ebins = np.append(lc.ebins[:, 0].values[idx], lc.ebins[-1,1])
+    # fig, axes = plt.subplots(lc_sum.shape[0], 1)
+    # fig.subplots_adjust(hspace=0)
+    # fig.align_ylabels(axes)
+    # for i in range(lc_sum.shape[0]):
+    #     axes[i].step(lc.time, lc_sum[i], label=f'{ebins[i]:.2f}-{ebins[i+1]:.2f} keV', where='mid')
+    #     axes[i].legend(loc='upper right')
+    #     axes[i].set_ylabel('Rate [s$^{-1}$]')
+    # axes[0].set_title(f'GECAM-C GRD {dets}, $\Delta t=0.1$ s')
+    # axes[-1].set_xlabel('$t - T_0$ [s]')
+    # <<< 分能段光变 <<<

@@ -6,11 +6,13 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 import scienceplots
+import scipy.stats as stats
 import tqdm
 import xarray as xr
 
-from scipy.optimize import minimize, root, root_scalar
-import scipy.stats as stats
+from scipy.optimize import minimize, root_scalar
+from iminuit import Minuit
+import iminuit
 from pymc.initial_point import make_initial_point_fn
 from pymc.model import modelcontext
 from pymc.sampling_jax import sample_numpyro_nuts, sample_blackjax_nuts
@@ -19,7 +21,10 @@ from pytensor.compile.function import function
 from pytensor.gradient import grad
 
 
-__all__ = ['confint_boostrap', 'find_MLE', 'mcmc_nuts', 'ppc', 'waic']
+__all__ = [
+    'confint_boostrap', 'confint_profile', 'find_MLE', 'mcmc_nuts', 'ppc',
+    'waic'
+]
 
 
 class ModelContext:
@@ -62,6 +67,25 @@ def find_MLE(
                        jac='3-point',
                        **kwargs)
 
+    dof = -len(vars_to_fit)
+    for i in model.data_names:
+        dof += getattr(model, i+'_data').channel.size
+
+    if opt_res.fun / dof > 1.0: # reduced chi2 > 2.0
+        print(
+            f'"{method}" seems not converged, use "powell" method to find MLE'
+        )
+        opt_res = minimize(fun=lambda x: fun(*x),
+                           x0=opt_res.x,
+                           method='powell')
+
+        opt_res = minimize(fun=lambda x: fun(*x),
+                           x0=opt_res.x,
+                           method=method,
+                           # jac=lambda x: jac(*x),
+                           jac='3-point',
+                           **kwargs)
+
     voi_name = [p.name for p in vars_of_interest]
     voi_value = get_voi(*opt_res.x)
     res = {name: value for name, value in zip(voi_name, voi_value)}
@@ -69,9 +93,7 @@ def find_MLE(
         res['grad'] = np.linalg.norm(opt_res.jac)
         res['grad_vec'] = opt_res.jac
     res['stat'] = 2.0 * opt_res.fun
-    res['dof'] = -len(vars_to_fit)
-    for i in model.data_names:
-        res['dof'] += getattr(model, i+'_data').channel.size
+    res['dof'] = dof
     res['gof'] = stats.chi2.sf(res['stat'], res['dof'])
     k = len(vars_of_interest)
     n = res['dof'] + k
@@ -82,6 +104,37 @@ def find_MLE(
         res['opt_res'] = opt_res
 
     return res
+
+
+def mle(model=None, start=None, method='L-BFGS-B', random_seed=42):
+    model = modelcontext(model)
+    pars = model.free_RVs
+    fit_pars = [model.rvs_to_values[p] for p in pars]
+    fit_names = [p.name for p in fit_pars]
+
+    deviance = function(fit_pars, -2 * model.datalogp)
+    gradient = function(fit_pars, grad(-2 * model.datalogp, fit_pars))
+
+    ipfn = make_initial_point_fn(
+        model=model,
+        jitter_rvs=set(),
+        return_transformed=True,
+        overrides=start,
+    )
+    start = ipfn(random_seed)
+    model.check_start_vals(start)
+    x0 = np.array([start[name] for name in fit_names])
+
+    opt_res = minimize(fun=lambda x: deviance(*x),
+                       x0=x0,
+                       method='L-BFGS-B',
+                       jac=lambda x: gradient(*x))
+    m = Minuit(deviance, *opt_res.x)
+    # print(iminuit.minimize(fun=lambda x: deviance(*x),
+    #                    x0=x0,
+    #                    method='migrad',
+    #                    jac=lambda x: gradient(*x)))
+    return m
 
 
 def draw_posterior_samples(idata, nsample, random_seed=42):
@@ -183,7 +236,8 @@ def ppc(idata, model=None, nsim=500, q=0.68269, random_seed=42):
     }
 
     pm.sample_posterior_predictive(
-        idata2, model, extend_inferencedata=True, random_seed=random_seed
+        idata2, model, extend_inferencedata=True, random_seed=random_seed,
+        progressbar=False
     )
     pdata = {
         k.replace('_Non', '_spec_counts').replace('_Noff', '_back_counts'):
@@ -247,7 +301,7 @@ def ppc(idata, model=None, nsim=500, q=0.68269, random_seed=42):
 
     mle = find_MLE(model, return_raw=True)
     Dmin_obs = mle['stat']
-    pars_mle = {p: mle[p] for p in pars_name}
+    # pars_mle = {p: mle[p] for p in pars_name}
 
     Drep = np.zeros(nsim)
     Dmin = np.empty(nsim)
@@ -290,14 +344,14 @@ def ppc(idata, model=None, nsim=500, q=0.68269, random_seed=42):
     axes[0].set_xlim(_min, _max)
     axes[0].set_ylim(_min, _max)
     ppp1 = (Drep > D).sum()/D.size
-    axes[0].set_title(f'$p$-value$=${ppp1:.2f}')
+    axes[0].set_title(f'$p$-value$=${ppp1:.3f}')
     axes[0].scatter(D, Drep, s=1)
     axes[0].set_aspect('equal')
     axes[0].set_xlabel('$D$')
     axes[0].set_ylabel(r'$D^{\rm rep}$')
 
     ppp2 = (Dmin > Dmin_obs).sum()/Dmin.size
-    axes[1].set_title(f'$p$-value$=${ppp2:.2f}')
+    axes[1].set_title(f'$p$-value$=${ppp2:.3f}')
     axes[1].hist(Dmin, bins='auto')
     axes[1].axvline(Dmin_obs, c='r', ls='--')
     axes[1].set_xlabel(r'$D_{\rm min}$')
@@ -407,6 +461,7 @@ def ppc(idata, model=None, nsim=500, q=0.68269, random_seed=42):
 def waic(idata):
     if not hasattr(idata, 'log_likelihood'):
         raise ValueError('InferenceData has no log_likelihood')
+    idata = idata.copy()
     log_likelihood = idata.log_likelihood
     data_name = [i.replace('_Non', '')
                  for i in log_likelihood.data_vars if '_Non' in i]
@@ -485,13 +540,13 @@ def confint_profile(
     )
     start = ipfn(random_seed)
     model.check_start_vals(start)
-    x0 = [start[name] for name in fit_names]
+    x0 = np.array([start[name] for name in fit_names])
 
+    # opt_res = minimize(fun=lambda x: nll(*x),
+    #                    x0=x0,
+    #                    method='powell')
     opt_res = minimize(fun=lambda x: nll(*x),
                        x0=x0,
-                       method='powell')
-    opt_res = minimize(fun=lambda x: nll(*x),
-                       x0=opt_res.x,
                        method=mini_meth,
                        jac=jac,
                        **mini_kwargs)
@@ -524,9 +579,11 @@ def confint_profile(
     if cl >= 1.0:
         delta = stats.chi2.ppf(1 - stats.norm.sf(cl) * 2, 1) / 2
         nsigma = cl
+        target_stat = f_opt + delta
     else:
         delta = stats.chi2.ppf(cl, 1) / 2
         nsigma = stats.norm.isf((1 - cl) / 2)
+        target_stat = f_opt + delta
 
     transforms = [model.rvs_to_transforms[rv] for rv in model.free_RVs]
     vec = pt.dvector()
@@ -547,23 +604,26 @@ def confint_profile(
                 # return nll(**free_pars, **{name: fixed[0]})
 
             def profile_nll(fixed_par):
-                r = minimize(fun=nll_fixed_p,
-                             x0=[free_pars[p] for p in free_names],
-                             args=(fixed_par,),
-                             method=mini_meth,
-                             jac=jac,
-                             **mini_kwargs)
-                # if not r.success and np.linalg.norm(r.jac) > 1e-2:
-                #     print(
-                #         f'WARING: failed to minimize {par_names[i]} profile '
-                #         'likelihood'
-                #     )
-                free_pars.update({k: v for k, v in zip(free_names, r.x)})
-                return r.fun - (f_opt + delta)
+                if len(free_names):
+                    r = minimize(fun=nll_fixed_p,
+                                 x0=[free_pars[p] for p in free_names],
+                                 args=(fixed_par,),
+                                 method=mini_meth,
+                                 jac=jac,
+                                 **mini_kwargs)
+                    # if not r.success and np.linalg.norm(r.jac) > 1e-2:
+                    #     print(
+                    #         f'WARING: failed to minimize {par_names[i]} profile '
+                    #         'likelihood'
+                    #     )
+                    free_pars.update({k: v for k, v in zip(free_names, r.x)})
+                    return r.fun - target_stat
+                else:
+                    return nll(**{name: fixed_par}) - target_stat
+
 
             free_names = [p for p in fit_names if p != name]
             free_pars = {p: x_opt[p] for p in free_names}
-
             # prange = np.linspace(x_opt[name] - nsigma * x_err[name],
             #                      x_opt[name] + nsigma * x_err[name],
             #                      1000)
@@ -572,13 +632,20 @@ def confint_profile(
             #             profile_nll(x_opt[name]))
             # plt.plot(transform_backward[_par_names[i]](prange),
             #          [profile_nll(i) for i in prange])
-
-            l = root_scalar(profile_nll,
-                            x0=x_opt[name] - nsigma * x_err[name],
-                            bracket=(-np.inf,
-                                     x_opt[name]))
-            if not l.converged:
-                print(f'WARING: failed to estimate {par_names[i]} lower error')
+            try:
+                l = root_scalar(profile_nll,
+                                x0=x_opt[name] - nsigma * x_err[name],
+                                bracket=(x_opt[name] - 3 * nsigma * x_err[name],
+                                         # -np.inf,
+                                         x_opt[name]))
+                if not l.converged:
+                    print(f'WARING: failed to estimate {par_names[i]} lower error ({l})')
+                    l = np.nan
+                else:
+                    l = l.root
+            except Exception as e:
+                print(f'WARING: failed to estimate {par_names[i]} lower error ({e})')
+                l = np.nan
             #
             # if x_err != 0.0:
             #     pdelta = -nsigma * x_err[name]
@@ -590,12 +657,21 @@ def confint_profile(
             #     print(f'WARING: failed to estimate {par_names[i]} lower error')
 
             free_pars = {k: v for k, v in x_opt.items() if k != name}
-            u = root_scalar(profile_nll,
-                            x0=x_opt[name] + nsigma * x_err[name],
-                            bracket=(x_opt[name],
-                                     x_opt[name] + 3 * nsigma * x_err[name]))
-            if not u.converged:
-                print(f'WARING: failed to estimate {par_names[i]} upper error')
+            try:
+                u = root_scalar(profile_nll,
+                                x0=x_opt[name] + nsigma * x_err[name],
+                                bracket=(x_opt[name],
+                                          x_opt[name] + 3 * nsigma * x_err[name]
+                                         #np.inf
+                                         ))
+                if not u.converged:
+                    print(f'WARING: failed to estimate {par_names[i]} upper error ({u})')
+                    u = np.nan
+                else:
+                    u = u.root
+            except Exception as e:
+                print(f'WARING: failed to estimate {par_names[i]} upper error ({e})')
+                u = np.nan
 
             # if x_err != 0.0:
             #     pdelta = nsigma * x_err[name]
@@ -607,10 +683,11 @@ def confint_profile(
             #     print(f'WARING: failed to estimate {par_names[i]} upper error')
 
             pname = _par_names[i]
-            transformed_pval = np.array([x_opt[name], l.x[0], u.x[0]])
+            transformed_pval = np.array([x_opt[name], l, u])
             # transformed_pval = np.array([x_opt[name], l.root, u.root])
             pval = transform_backward[pname](transformed_pval)
-            CI[pname] = (pval[0], pval[1] - pval[0], pval[2] - pval[0])
+            # CI[pname] = (pval[0], pval[1] - pval[0], pval[2] - pval[0])
+            CI[pname] = (pval[0], pval[1], pval[2])
 
     return CI
 
@@ -633,7 +710,7 @@ def confint_boostrap(
     trans_pars = [model.rvs_to_values[v] for v in model.free_RVs]
     trans_name = [v.name for v in trans_pars]
 
-    score = function(trans_pars, -model.datalogp)
+    loss = function(trans_pars, -model.datalogp)
 
     ipfn = make_initial_point_fn(
         model=model,
@@ -645,7 +722,7 @@ def confint_boostrap(
     model.check_start_vals(start)
     trans_init = np.array([start[name] for name in trans_name])
 
-    mle_res = minimize(fun=lambda x: score(*x),
+    mle_res = minimize(fun=lambda x: loss(*x),
                        x0=trans_init,
                        jac='3-point',
                        method=opt_method,
@@ -681,7 +758,7 @@ def confint_boostrap(
     trans_boot = np.empty((nboot, len(trans_name)))
     for i in tqdm.tqdm(range(nboot), desc='Bootstrap', file=sys.stdout):
         pm.set_data({d: pdata[d][i] for d in pdata}, model)
-        opt_res = minimize(fun=lambda x: score(*x),
+        opt_res = minimize(fun=lambda x: loss(*x),
                            x0=trans_mle,
                            jac='2-point',
                            method='L-BFGS-B')
@@ -714,7 +791,7 @@ def confint_boostrap(
 
     idata_boot = az.InferenceData(posterior=boot_dataset)
     CI = {
-        k: np.array([pars_mle[i], v[0] - pars_mle[i], v[1] - pars_mle[i]])
+        k: np.array([pars_mle[i], v[0], v[1]])
         for i, (k, v) in enumerate(az.hdi(idata_boot, q).items())
     }
     return CI

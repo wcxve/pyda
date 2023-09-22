@@ -31,9 +31,9 @@ if __name__ == '__main__':
         stat(wabs*src, LE)
         stat(src, ME)
         stat(src, HE)
-        idata = mcmc_nuts(model)
-        plot_corner(idata)
-        ppc(idata, model)
+        # idata = mcmc_nuts(model)
+        # plot_corner(idata)
+        # ppc(idata, model)
 
     # plot_spec(model_context=model)
     # assess_goodness(idata, model)

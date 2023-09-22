@@ -3,7 +3,7 @@ import pytensor.tensor as pt
 from pyda.bayespec.base_model import AutoGradOp, SpectralModel
 
 __all__ = [
-    'Band', 'BandOld',
+    'Band', 'BandEp',
     'BlackBody', 'BlackBodyRad',
     'Comptonized', 'CutoffPowerlaw',
     'OOTB',
@@ -11,7 +11,7 @@ __all__ = [
 ]
 
 
-class BandOp(AutoGradOp):
+class BandEpOp(AutoGradOp):
     def __init__(self, pars, integral_method='trapz'):
         super().__init__(pars, 'add', integral_method)
 
@@ -28,7 +28,7 @@ class BandOp(AutoGradOp):
         ))
 
 
-class BandOldOp(AutoGradOp):
+class BandOp(AutoGradOp):
     def __init__(self, pars, integral_method='trapz'):
         super().__init__(pars, 'add', integral_method)
 
@@ -112,48 +112,56 @@ class PowerlawOp(AutoGradOp):
 
 
 class Band(SpectralModel):
+    name = 'Band'
     def __init__(self, alpha, beta, Epeak, integral_method='trapz'):
         op = BandOp([alpha, beta, Epeak], integral_method)
         super().__init__(op, op.optype)
 
 
-class BandOld(SpectralModel):
+class BandEp(SpectralModel):
+    name = 'Band_Ep'
     def __init__(self, alpha, beta, Ecut, integral_method='trapz'):
-        op = BandOldOp([alpha, beta, Ecut], integral_method)
+        op = BandEpOp([alpha, beta, Ecut], integral_method)
         super().__init__(op, op.optype)
 
 
 class BlackBody(SpectralModel):
+    name = 'BB'
     def __init__(self, kT, integral_method='trapz'):
         op = BlackBodyOp([kT], integral_method)
         super().__init__(op, op.optype)
 
 
 class BlackBodyRad(SpectralModel):
+    name = 'BBrad'
     def __init__(self, kT, integral_method='trapz'):
         op = BlackBodyRadOp([kT], integral_method)
         super().__init__(op, op.optype)
 
 
 class Comptonized(SpectralModel):
+    name = 'Comp'
     def __init__(self, PhoIndex, Epeak, integral_method='trapz'):
         op = ComptonizedOp([PhoIndex, Epeak], integral_method)
         super().__init__(op, op.optype)
 
 
 class CutoffPowerlaw(SpectralModel):
+    name = 'CPL'
     def __init__(self, PhoIndex, Ecut, integral_method='trapz'):
         op = CutoffPowerlawOp([PhoIndex, Ecut], integral_method)
         super().__init__(op, op.optype)
 
 
 class OOTB(SpectralModel):
+    name = 'OOTB'
     def __init__(self, kT, integral_method='trapz'):
         op = OOTBOp([kT], integral_method)
         super().__init__(op, op.optype)
 
 
 class Powerlaw(SpectralModel):
+    name = 'PL'
     def __init__(self, PhoIndex):
         op = PowerlawOp([PhoIndex])
         super().__init__(op, op.optype)

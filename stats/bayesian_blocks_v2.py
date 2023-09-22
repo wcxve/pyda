@@ -154,7 +154,7 @@ def blocks_tte(t, p0=0.05, niter=0, return_mvts=False):
         Iterate ``niter`` times such that the overall false positive rate
         approaches ``p0``. The default is 0.
     return_mvts : bool, optional
-        Whether to return minimum variability time scale. The default is False.
+        Whether to return minimum variability timescale. The default is False.
 
     Returns
     -------

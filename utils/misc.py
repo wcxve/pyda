@@ -20,6 +20,9 @@ ORBIT_CONFIG = {
               'POS_X', 'POS_Y', 'POS_Z',
               'VEL_X', 'VEL_Y', 'VEL_Z'),
 }
+ORBIT_CONFIG['GECAM-A'] = ORBIT_CONFIG['GECAM']
+ORBIT_CONFIG['GECAM-B'] = ORBIT_CONFIG['GECAM']
+ORBIT_CONFIG['GECAM-C'] = ORBIT_CONFIG['GECAM']
 
 
 def get_sat_j2000(time, file):
@@ -78,7 +81,7 @@ def get_sat_j2000(time, file):
 def telescope_to_sat(telescope: str) -> str:
     if telescope == 'HXMT':
         return 'HXMT'
-    elif telescope in ['GECAM-A', 'GECAM-B']:
+    elif telescope in ['GECAM-A', 'GECAM-B', 'GECAM-C']:
         return telescope
     elif telescope == 'HEBS':
         return 'GECAM-C'

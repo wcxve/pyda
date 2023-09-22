@@ -277,7 +277,7 @@ def object_angle(obj, t0, tstart, tstop, posatt_file, det=None):
             quat[mask] = np.column_stack([posatt[mask][q] for q in Q_pre])
             print('WARNING: applied workaround for reading GECAM-C quats!')
 
-    if type(obj) in [list, tuple] and len(obj) == 2:
+    if type(obj) in [list, tuple, np.ndarray] and len(obj) == 2:
         src_j2000 = radec_to_cart(obj)
     elif type(obj) == str and obj.lower() == 'earth':
         src_j2000 = np.column_stack(
@@ -297,8 +297,8 @@ def object_angle(obj, t0, tstart, tstop, posatt_file, det=None):
 
     src_sat = j2000_to_sat(quat, src_j2000)
     src_payload = sat_to_payload(src_sat, sat)
-    print(src_payload)
-    # print(cart_to_sph(src_payload))
+    # print(src_payload)
+    print(cart_to_sph(src_payload))
     det_payload = get_det_payload(sat, det)
     angle = _angle_between1(src_payload, det_payload)
 

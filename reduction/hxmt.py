@@ -70,25 +70,59 @@ def le_reduction(
     binsize,
     tstart_src,
     tstop_src,
-    bkg_interval=None,
+    bkg_intervals=None,
     emin=1,
     emax=10,
-    det_expr=None,
-    gti_expr=None,
-    overwrite=False
+    det_expr='0,2-4,6-10,12,14,20,22-26,28,30,32,34-36,38-42,44,46,52,54-58,60-62,64,66-68,70-74,76,78,84,86,88-90,92-94',
+    gti_expr='ELV>10&&DYE_ELV>30&&COR>8&&SAA_FLAG==0&&T_SAA>=300&&TN_SAA>=300&&ANG_DIST<=0.04',
+    overwrite=True,
+    overwrite_pi=False,
+    overwrite_recon=False,
+    dirname=None
 ):
     """
-    Reduction of HXMT/LE Data, produce PI-calibrated and reconsturcted event
-    files.
+    Insight-HXMT/LE Data reduction.
 
     Parameters
     ----------
     obsid : str
-        ObsID of HXMT observation.
+        ObsID of HXMT observation, e.g., P051435700205.
     out_path : str
-        Output path of event file.
+        Output path.
+    tstart : float, or int
+        Start time of screen file in MET format.
+    tstop : float, or int
+        Stop time of screen file in MET format.
+    binsize : float or int
+        Binsize of light curve, used to extract exposure info in that scale.
+    tstart_src : float or int
+        Start time of source region in MET format.
+    tstop_src : float or int
+        Stop time of source region in MET format.
+    bkg_intervals : 1-D array_like
+        Background intervals in MET format. e.g., [t0-11, t0-1, t0+1, t0+11].
+    emin : float or int
+        Minimum energy to consider in light curve.
+    emax : float or int
+        Maximum energy to consider in light curve.
+    det_expr : str, optional
+        Detector selection criterion.
+    gti_expr : str, optional
+        Good time interval criterion.
     overwrite : bool, optional
-        Whether to overwrite event file if exsited. The default is False.
+        Whether to overwrite files, excluding PI and RECON file.
+    overwrite_pi : bool, optional
+        Whether to overwrite PI file.
+    overwrite_recon : bool, optional
+        Whether to overwrite RECON file.
+    dirname : str, or None, optional
+        Output directory of 2L product. When None, it is given as
+        f'{tstart}-{tstop}'.
+
+    Returns
+    -------
+    flag : int
+        1 when success.
 
     """
     if tstart_src < tstart:
@@ -103,16 +137,18 @@ def le_reduction(
     if emax > 13.1:
         raise ValueError('`emax` is larger than 13.1 keV')
 
-    if bkg_interval is not None:
-        if len(bkg_interval) % 2 != 0:
-            raise ValueError('length of `bkg_interval` is not a multiple of 2')
-        if np.any(np.diff(bkg_interval) <= 0.0):
-            raise ValueError('`bkg_interval` is not incremental in time')
-        if bkg_interval[0] < tstart:
-            raise ValueError('`bkg_interval[0]` is smaller than `tstart`')
-        if bkg_interval[-1] > tstop:
-            raise ValueError('`bkg_interval[-1]` is larger than `tstop`')
+    if bkg_intervals is not None:
+        if len(bkg_intervals) % 2 != 0:
+            raise ValueError('length of `bkg_intervals` is not multiple of 2')
+        if np.any(np.diff(bkg_intervals) <= 0.0):
+            raise ValueError('`bkg_intervals` is not incremental in time')
+        if bkg_intervals[0] < tstart:
+            raise ValueError('`bkg_intervals[0]` is smaller than `tstart`')
+        if bkg_intervals[-1] > tstop:
+            raise ValueError('`bkg_intervals[-1]` is larger than `tstop`')
 
+    clobber_pi = 'yes' if overwrite_pi else 'no'
+    clobber_recon = 'yes' if overwrite_recon else 'no'
     clobber = 'yes' if overwrite else 'no'
 
     p1 = f'/hxmt/work/HXMT-DATA/1L/A{obsid[1:3]}/{obsid[:-5]}/{obsid[:-2]}'
@@ -150,7 +186,7 @@ def le_reduction(
         f'tempfile="{temp_file}" '
         f'outfile="{pi_file}" '
         f'pedestalfile="{pedestal}" '
-        f'clobber={clobber}'
+        f'clobber={clobber_pi}'
     )
 
     os.system(
@@ -158,13 +194,9 @@ def le_reduction(
         f'evtfile="{pi_file}" '
         f'outfile="{recon_file}" '
         f'instatusfile="{instatus_file}" '
-        f'clobber={clobber}'
+        f'clobber={clobber_recon}'
     )
 
-    gti_expr = (
-        'ELV>10&&DYE_ELV>30&&COR>8&&SAA_FLAG==0&&T_SAA>=300&&TN_SAA>=300'
-        '&&ANG_DIST<=0.04'
-    ) if gti_expr is None else gti_expr
     os.system(
         f'legtigen '
         f'evtfile="NONE" '
@@ -181,7 +213,10 @@ def le_reduction(
     )
 
     # produce 2L Data
-    path_2L = f'{out_path}/{obsid}/{tstart}-{tstop}'
+    if dirname is not None:
+        path_2L = f'{out_path}/{obsid}/{dirname}'
+    else:
+        path_2L = f'{out_path}/{obsid}/{tstart}-{tstop}'
     if not os.path.exists(path_2L):
         os.system(f'mkdir {path_2L}')
 
@@ -193,10 +228,6 @@ def le_reduction(
     rsp_file  = f'{prefix2}.rsp'
 
     # generate screened event data given DetID and time interval of interest
-    det_expr = (
-        '0,2-4,6-10,12,14,20,22-26,28,30,32,34-36,38-42,44,46,52,54-58,60-62,'
-        '64,66-68,70-74,76,78,84,86,88-90,92-94'
-    ) if det_expr is None else det_expr
     specify_hxmt_gti(gti_file, (tstart, tstop), gti_user)
     os.system(
         f'lescreen '
@@ -221,11 +252,11 @@ def le_reduction(
     )
 
     # generate background spectrum
-    if bkg_interval is not None:
+    if bkg_intervals is not None:
         gti_bkg  = f'{prefix2}_BKG_GTI.fits'
         bkg_data = f'{prefix2}_BKG_EVT.fits'
         bkg_spec = f'{prefix2}_BKG'
-        specify_hxmt_gti(gti_file, bkg_interval, gti_bkg)
+        specify_hxmt_gti(gti_file, bkg_intervals, gti_bkg)
         os.system(
             f'lescreen '
             f'evtfile="{recon_file}" '
@@ -287,24 +318,59 @@ def me_reduction(
     binsize,
     tstart_src,
     tstop_src,
-    bkg_interval=None,
+    bkg_intervals=None,
     emin=10,
     emax=35,
-    det_expr=None,
-    gti_expr=None,
-    overwrite=False,
+    det_expr='0-7,11-25,29-43,47-53',
+    gti_expr='ELV>10&&COR>8&&SAA_FLAG==0&&T_SAA>=300&&TN_SAA>=300&&ANG_DIST<=0.04',
+    overwrite=True,
+    overwrite_pi=False,
+    overwrite_grade=False,
+    dirname=None
 ):
     """
-    Reduction of HXMT/ME Data, produce PI-calibrated and grade event files.
+    Insight-HXMT/ME Data reduction.
 
     Parameters
     ----------
     obsid : str
-        ObsID of HXMT observation.
+        ObsID of HXMT observation, e.g., P051435700205.
     out_path : str
-        Output path of event file.
+        Output path.
+    tstart : float, or int
+        Start time of screen file in MET format.
+    tstop : float, or int
+        Stop time of screen file in MET format.
+    binsize : float or int
+        Binsize of light curve, used to extract exposure info in that scale.
+    tstart_src : float or int
+        Start time of source region in MET format.
+    tstop_src : float or int
+        Stop time of source region in MET format.
+    bkg_intervals : 1-D array_like
+        Background intervals in MET format. e.g., [t0-11, t0-1, t0+1, t0+11].
+    emin : float or int
+        Minimum energy to consider in light curve.
+    emax : float or int
+        Maximum energy to consider in light curve.
+    det_expr : str, optional
+        Detector selection criterion.
+    gti_expr : str, optional
+        Good time interval criterion.
     overwrite : bool, optional
-        Whether to overwrite event file if exsited. The default is False.
+        Whether to overwrite files, excluding PI and GRADE file.
+    overwrite_pi : bool, optional
+        Whether to overwrite PI file.
+    overwrite_grade : bool, optional
+        Whether to overwrite GRADE file.
+    dirname : str, or None, optional
+        Output directory of 2L product. When None, it is given as
+        f'{tstart}-{tstop}'.
+
+    Returns
+    -------
+    flag : int
+        1 when success.
 
     """
     if tstart_src < tstart:
@@ -319,16 +385,18 @@ def me_reduction(
     if emax > 63:
         raise ValueError('`emax` is larger than 63 keV')
 
-    if bkg_interval is not None:
-        if len(bkg_interval) % 2 != 0:
-            raise ValueError('length of `bkg_interval` is not a multiple of 2')
-        if np.any(np.diff(bkg_interval) <= 0.0):
-            raise ValueError('`bkg_interval` is not incremental in time')
-        if bkg_interval[0] < tstart:
-            raise ValueError('`bkg_interval[0]` is smaller than `tstart`')
-        if bkg_interval[-1] > tstop:
-            raise ValueError('`bkg_interval[-1]` is larger than `tstop`')
+    if bkg_intervals is not None:
+        if len(bkg_intervals) % 2 != 0:
+            raise ValueError('length of `bkg_intervals` is not multiple of 2')
+        if np.any(np.diff(bkg_intervals) <= 0.0):
+            raise ValueError('`bkg_intervals` is not incremental in time')
+        if bkg_intervals[0] < tstart:
+            raise ValueError('`bkg_intervals[0]` is smaller than `tstart`')
+        if bkg_intervals[-1] > tstop:
+            raise ValueError('`bkg_intervals[-1]` is larger than `tstop`')
 
+    clobber_pi = 'yes' if overwrite_pi else 'no'
+    clobber_grade = 'yes' if overwrite_grade else 'no'
     clobber = 'yes' if overwrite else 'no'
 
     p1 = f'/hxmt/work/HXMT-DATA/1L/A{obsid[1:3]}/{obsid[:-5]}/{obsid[:-2]}'
@@ -364,7 +432,7 @@ def me_reduction(
         f'evtfile="{evt_file}" '
         f'tempfile="{temp_file}" '
         f'outfile="{pi_file}" '
-        f'clobber={clobber}'
+        f'clobber={clobber_pi}'
     )
 
     os.system(
@@ -372,13 +440,10 @@ def me_reduction(
         f'evtfile="{pi_file}" '
         f'outfile="{grade_file}" '
         f'deadfile={dtime_file} '
-        f'binsize=0.01 '
-        f'clobber={clobber}'
+        f'binsize=0.001 '
+        f'clobber={clobber_grade}'
     )
 
-    gti_expr = (
-        'ELV>10&&COR>8&&SAA_FLAG==0&&T_SAA>=300&&TN_SAA>=300&&ANG_DIST<=0.04'
-    ) if gti_expr is None else gti_expr
     os.system(
         f'megtigen '
         f'tempfile="{temp_file}" '
@@ -394,7 +459,10 @@ def me_reduction(
     )
 
     # produce 2L Data
-    path_2L = f'{out_path}/{obsid}/{tstart}-{tstop}'
+    if dirname is not None:
+        path_2L = f'{out_path}/{obsid}/{dirname}'
+    else:
+        path_2L = f'{out_path}/{obsid}/{tstart}-{tstop}'
     if not os.path.exists(path_2L):
         os.system(f'mkdir {path_2L}')
 
@@ -406,7 +474,6 @@ def me_reduction(
     rsp_file  = f'{prefix2}.rsp'
 
     # generate screened event data given DetID and time interval of interest
-    det_expr = '0-7,11-25,29-43,47-53' if det_expr is None else det_expr
     specify_hxmt_gti(gti_file, (tstart, tstop), gti_user)
     os.system(
         f'mescreen '
@@ -431,11 +498,11 @@ def me_reduction(
     )
 
     # generate background spectrum
-    if bkg_interval is not None:
+    if bkg_intervals is not None:
         gti_bkg  = f'{prefix2}_BKG_GTI.fits'
         bkg_data = f'{prefix2}_BKG_EVT.fits'
         bkg_spec = f'{prefix2}_BKG'
-        specify_hxmt_gti(gti_file, bkg_interval, gti_bkg)
+        specify_hxmt_gti(gti_file, bkg_intervals, gti_bkg)
         os.system(
             f'mescreen '
             f'evtfile="{grade_file}" '
@@ -497,24 +564,59 @@ def he_reduction(
     binsize,
     tstart_src,
     tstop_src,
-    bkg_interval=None,
+    bkg_intervals=None,
     emin=28,
     emax=250,
-    det_expr=None,
-    gti_expr=None,
-    overwrite=False
+    det_expr='0-15,17',
+    gti_expr='ELV>10&&COR>8&&SAA_FLAG==0&&T_SAA>=300&&TN_SAA>=300&&ANG_DIST<=0.04',
+    pm_expr = 'Cnt_PM_0<50&&Cnt_PM_1<50&&Cnt_PM_2<50',
+    overwrite=True,
+    overwrite_pi=False,
+    dirname=None
 ):
     """
-    Reduction of HXMT/HE Data, produce PI-calibrated event files.
+    Insight-HXMT/HE Data reduction.
 
     Parameters
     ----------
     obsid : str
-        ObsID of HXMT observation.
+        ObsID of HXMT observation, e.g., P051435700205.
     out_path : str
-        Output path of event file.
+        Output path.
+    tstart : float, or int
+        Start time of screen file in MET format.
+    tstop : float, or int
+        Stop time of screen file in MET format.
+    binsize : float or int
+        Binsize of light curve, used to extract exposure info in that scale.
+    tstart_src : float or int
+        Start time of source region in MET format.
+    tstop_src : float or int
+        Stop time of source region in MET format.
+    bkg_intervals : 1-D array_like
+        Background intervals in MET format. e.g., [t0-11, t0-1, t0+1, t0+11].
+    emin : float or int
+        Minimum energy to consider in light curve.
+    emax : float or int
+        Maximum energy to consider in light curve.
+    det_expr : str, optional
+        Detector selection criterion.
+    gti_expr : str, optional
+        Good time interval criterion.
+    pm_expr : str, optional
+        Particle monitor criterion for GTI.
     overwrite : bool, optional
-        Whether to overwrite event file if exsited. The default is False.
+        Whether to overwrite files, excluding PI file.
+    overwrite_pi : bool, optional
+        Whether to overwrite PI file.
+    dirname : str, or None, optional
+        Output directory of 2L product. When None, it is given as
+        f'{tstart}-{tstop}'.
+
+    Returns
+    -------
+    flag : int
+        1 when success.
 
     """
     if tstart_src < tstart:
@@ -529,16 +631,17 @@ def he_reduction(
     if emax > 385:
         raise ValueError('`emax` is larger than 385 keV')
 
-    if bkg_interval is not None:
-        if len(bkg_interval) % 2 != 0:
-            raise ValueError('length of `bkg_interval` is not a multiple of 2')
-        if np.any(np.diff(bkg_interval) <= 0.0):
-            raise ValueError('`bkg_interval` is not incremental in time')
-        if bkg_interval[0] < tstart:
-            raise ValueError('`bkg_interval[0]` is smaller than `tstart`')
-        if bkg_interval[-1] > tstop:
-            raise ValueError('`bkg_interval[-1]` is larger than `tstop`')
+    if bkg_intervals is not None:
+        if len(bkg_intervals) % 2 != 0:
+            raise ValueError('length of `bkg_intervals` is not multiple of 2')
+        if np.any(np.diff(bkg_intervals) <= 0.0):
+            raise ValueError('`bkg_intervals` is not incremental in time')
+        if bkg_intervals[0] < tstart:
+            raise ValueError('`bkg_intervals[0]` is smaller than `tstart`')
+        if bkg_intervals[-1] > tstop:
+            raise ValueError('`bkg_intervals[-1]` is larger than `tstop`')
 
+    clobber_pi = 'yes' if overwrite_pi else 'no'
     clobber = 'yes' if overwrite else 'no'
 
     p1 = f'/hxmt/work/HXMT-DATA/1L/A{obsid[1:3]}/{obsid[:-5]}/{obsid[:-2]}'
@@ -576,13 +679,9 @@ def he_reduction(
         f'hepical '
         f'evtfile="{evt_file}" '
         f'outfile="{pi_file}" '
-        f'clobber={clobber}'
+        f'clobber={clobber_pi}'
     )
 
-    gti_expr = (
-        'ELV>10&&COR>8&&SAA_FLAG==0&&T_SAA>=300&&TN_SAA>=300&&ANG_DIST<=0.04'
-    ) if gti_expr is None else gti_expr
-    pm_expr = 'Cnt_PM_0<50&&Cnt_PM_1<50&&Cnt_PM_2<50'
     os.system(
         f'hegtigen '
         f'hvfile="{hv_file}" '
@@ -597,7 +696,10 @@ def he_reduction(
     )
 
     # produce 2L Data
-    path_2L = f'{out_path}/{obsid}/{tstart}-{tstop}'
+    if dirname is not None:
+        path_2L = f'{out_path}/{obsid}/{dirname}'
+    else:
+        path_2L = f'{out_path}/{obsid}/{tstart}-{tstop}'
     if not os.path.exists(path_2L):
         os.system(f'mkdir {path_2L}')
 
@@ -609,7 +711,6 @@ def he_reduction(
     rsp_file  = f'{prefix2}.rsp'
 
     # generate screened event data given DetID and time interval of interest
-    det_expr = '0-15,17' if det_expr is None else det_expr
     specify_hxmt_gti(gti_file, (tstart, tstop), gti_user)
     os.system(
         f'hescreen '
@@ -636,11 +737,11 @@ def he_reduction(
     )
 
     # generate background spectrum
-    if bkg_interval is not None:
+    if bkg_intervals is not None:
         gti_bkg  = f'{prefix2}_BKG_GTI.fits'
         bkg_data = f'{prefix2}_BKG_EVT.fits'
         bkg_spec = f'{prefix2}_BKG'
-        specify_hxmt_gti(gti_file, bkg_interval, gti_bkg)
+        specify_hxmt_gti(gti_file, bkg_intervals, gti_bkg)
         os.system(
             f'hescreen '
             f'evtfile="{pi_file}" '
