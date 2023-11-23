@@ -121,6 +121,7 @@ def sat_to_j2000(quat, coord):
 def j2000_to_sat(quat, coord, is_inv=False):
     # quat shape = (ntimes, 4)
     # coord shape = (ntimes, 3)
+    # is_inv: if quat is used to transform from j2000 to sat
     # return (ntimes, 3)
     if not is_inv:
         r = R.from_quat(quat).inv()
@@ -317,16 +318,18 @@ if __name__ == '__main__':
     # ra = 288.263
     # dec = 19.803
     ra, dec = 60.819, -75.379
-    n = 4
+    ra, dec = 305.57, 15.03
+    n = 5
     det = [None, 'lat'][0]
     posatt = [
         '/Users/xuewc/BurstData/GRB221009A/gb_posatt_221009_13_v00.fits',
         '/Users/xuewc/BurstData/GRB221009A/HEBS_Occultation/gc_posatt_221009_13_v06.fits',
         '/Users/xuewc/BurstData/GRB221009A/Fermi_GBM/glg_poshist_all_221009_v00.fit',
         '/Users/xuewc/Downloads/gb_posatt_230307_15_v00.fits',
-        '/Users/xuewc/Downloads/gc_posatt_230307_15_v00.fits'
+        '/Users/xuewc/Downloads/gc_posatt_230307_15_v00.fits',
+        '/Users/xuewc/Downloads/gc_posatt_231117_03_v00.fits'
     ][n]
-    t0 = [119020620.05, 55862220.05, 687014225.05, 131903046.67, 68744646.65][n]
+    t0 = [119020620.05, 55862220.05, 687014225.05, 131903046.67, 68744646.65, 90730999.301][n]
     tstart = 0
     tstop = 100
     obj = (ra, dec)

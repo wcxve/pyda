@@ -6,6 +6,9 @@
 import glob
 import os
 
+# fix: Unable to redirect prompts to the /dev/tty (at headas_stdio.c:152)
+os.environ["HEADASNOQUERY"] = "False"
+
 import numpy as np
 
 from astropy.io import fits
@@ -569,7 +572,7 @@ def he_reduction(
     emax=250,
     det_expr='0-15,17',
     gti_expr='ELV>10&&COR>8&&SAA_FLAG==0&&T_SAA>=300&&TN_SAA>=300&&ANG_DIST<=0.04',
-    pm_expr = 'Cnt_PM_0<50&&Cnt_PM_1<50&&Cnt_PM_2<50',
+    pm_expr='Cnt_PM_0<50&&Cnt_PM_1<50&&Cnt_PM_2<50',
     overwrite=True,
     overwrite_pi=False,
     dirname=None

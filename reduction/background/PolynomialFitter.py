@@ -27,11 +27,11 @@ class PolynomialFitter:
     rank_warn : bool, optional
         Whether to raise a warning when the design matrix is rank deficient.
         The default is True.
-    
+
     Attributes
     ----------
     fit_method : str
-        Method for performing polynomial fit, available choices are:\n
+        Method for performing polynomial fit, available choices are:
             +-----------+---------------------------------------+
             | ``2pass`` | two-pass fitting procedure            |
             +-----------+---------------------------------------+
@@ -46,10 +46,10 @@ class PolynomialFitter:
         Degrees-of-freedom of each fitted channel.
     rank_warn : bool
         Whether to raise a warning when the design matrix is rank deficient.
-    
+
     Methods
     -------
-    fit : 
+    fit :
         Fit the count data with a given ``order`` polynomial.
     interpolate:
         Interpolate the fitted polynomial model over the given time bins.
@@ -59,22 +59,22 @@ class PolynomialFitter:
     RankWarning
         The rank of the coefficient matrix in the least-squares fit is
         deficient.
-        
+
         The warnings can be turned off by passing ``rank_warn=False`` to
         the fitter class when initializing a fitter object,
-        
+
         >>> pf = PolynomialFitter(
         ...     counts, tstart, tstop, exposure, rank_warn=False
         ... )
-        
+
         or set the fitter object's attribute ``rank_warn`` to ``False``
         before fitting.
-        
+
         >>> pf.rank_warn = False
         >>> pf.fit(order=1)
-    
+
     """
-    
+
     def __init__(self, counts, tstart, tstop, exposure, rank_warn=True):
         self._counts = np.atleast_2d(np.asarray(counts, dtype=np.float64))
         self._t0 = tstart[0]
@@ -82,7 +82,7 @@ class PolynomialFitter:
         self._tstop = np.asarray(tstop, dtype=np.float64) - self._t0
         self._exposure = np.asarray(exposure, dtype=np.float64)
         self._nchans, self._ntimes = self._counts.shape
-        
+
         self._fit_method = '2pass'
         self._pchi2 = None
         self._dof = None
@@ -90,11 +90,11 @@ class PolynomialFitter:
         self._coeffs = None
         self._covars = None
         self._rank_warn = rank_warn
-    
+
     @property
     def fit_method(self):
         return self._fit_method
-    
+
     @fit_method.setter
     def fit_method(self, method):
         method_list = [
@@ -113,23 +113,23 @@ class PolynomialFitter:
                 '|  ``mle``  | maximum Poisson likelihood estimation |\n'
                 '+-----------+---------------------------------------+'
             )
-    
+
     @property
     def test_method(self):
         return 'pchi2'
-    
+
     @property
     def test_statistic(self):
         return self._pchi2
-    
+
     @property
     def dof(self):
         return self._dof
-    
+
     @property
     def rank_warn(self):
         return self._rank_warn
-    
+
     @rank_warn.setter
     def rank_warn(self, boolean):
         if type(boolean) is bool:
@@ -138,7 +138,7 @@ class PolynomialFitter:
             raise ValueError(
                 '``rank_warn`` must be ``True`` or ``False``'
             )
-    
+
     def fit(self, order=1):
         """
         Fit the count data with a polynomial.
@@ -168,7 +168,7 @@ class PolynomialFitter:
         if order < 0:
             raise ValueError('polynomial order must be non-negative')
         self._order = order
-        
+
         # fit
         if self.fit_method == '2pass':
             self._fit_2pass()
@@ -177,7 +177,7 @@ class PolynomialFitter:
             self._fit_mle(self._coeffs)
         elif self.fit_method == 'irls':
             self._fit_irls()
-        
+
         # evaluate model
         model = self._eval_model(self._tstart, self._tstop, None)
 
@@ -192,16 +192,16 @@ class PolynomialFitter:
                 f'polynomial (the current is {self._order}).',
                 RuntimeWarning
             )
-        
+
         # evaluate model uncertainty
         model_uncert = self._eval_uncertainty(self._tstart, self._tstop, None)
 
-        # evaluate goodness-of-fit   
+        # evaluate goodness-of-fit
         self._pchi2, self._dof = self._eval_gof(model)
-        
+
         return model, model_uncert
-    
-    
+
+
     def interpolate(self, tstart, tstop, exposure=None):
         """
         Interpolate the fitted model over the given time bins.
@@ -231,8 +231,8 @@ class PolynomialFitter:
         interp = self._eval_model(tstart, tstop, exposure)
         interp_uncert = self._eval_uncertainty(tstart, tstop, exposure)
         return interp, interp_uncert
-    
-    
+
+
     def _fit_2pass(self):
         """
         Model variances are used for chi-squared via two fitting passes.
@@ -240,11 +240,11 @@ class PolynomialFitter:
         """
         self._coeffs = np.empty((self._nchans, self._order+1))
         self._covars = np.empty((self._nchans, self._order+1, self._order+1))
-        
+
         # two-pass fitting
         X = self._eval_basis(self._tstart, self._tstop, self._exposure)
         y = self._counts
-        
+
         # first pass uses the weights calculated from data count
         zero = (self._counts == 0)
         w = np.piecewise(
@@ -252,13 +252,13 @@ class PolynomialFitter:
             condlist=[zero, ~zero],
             funclist=[lambda c: 0.0, lambda c: np.sqrt(1/c)]
         )
-        
+
         for i in range(self._nchans):
             self._coeffs[i] = self._weighted_leastsq(X, y[i], w[i], False)
-        
+
         # second pass uses the weights calculated from model count
         model = self._eval_model(self._tstart, self._tstop, self._exposure)
-        
+
         # check if model has negative value
         negative = np.any(model < 0.0, axis=1)
         if np.any(negative):
@@ -270,19 +270,19 @@ class PolynomialFitter:
                 f'polynomial (the current is {self._order}).',
                 RuntimeWarning
             )
-        
+
         positive = (model > 0.0)
         w = np.piecewise(
             model,
             condlist=[~positive, positive],
             funclist=[lambda m: 0.0, lambda m: np.sqrt(1/m)]
         )
-        
+
         for i in range(self._nchans):
             self._coeffs[i], self._covars[i] = \
                 self._weighted_leastsq(X, y[i], w[i])
-    
-    
+
+
     def _fit_mle(self, init_coeffs):
         """
         Fit using maximum Poisson likelihood estimation.
@@ -297,23 +297,23 @@ class PolynomialFitter:
             'WARNING: The fitting algorithm using maximum Poisson likelihood '
             'estimation is not yet implemented, will use ``2pass`` instead.'
         )
-    
+
     def _fit_irls(self):
         """
         Iteratively reweighted least squares fit.
         """
         self._coeffs = np.empty((self._nchans, self._order+1))
         self._covars = np.empty((self._nchans, self._order+1, self._order+1))
-        
+
         X = self._eval_basis(self._tstart, self._tstop, self._exposure)
         y = self._counts
         w = np.ones_like(y) # initial weights set to one
-        
+
         for i in range(self._nchans):
             self._coeffs[i] = self._weighted_leastsq(X, y[i], w[i], False)
-        
-    
-    
+
+
+
     def _eval_model(self, tstart, tstop, exposure=None):
         """
         Evaluate the model values over the given time bins.
@@ -337,8 +337,8 @@ class PolynomialFitter:
         basis = self._eval_basis(tstart, tstop, exposure)
         model = self._coeffs @ basis.T
         return model
-    
-    
+
+
     def _eval_uncertainty(self, tstart, tstop, exposure=None):
         """
         Evaluate the uncertainty of the model values over the given time bins,
@@ -370,8 +370,8 @@ class PolynomialFitter:
         # to shape (N, ``nchans``), then sqrt(var).T gives the uncertainty
         uncertainty = np.sqrt(np.squeeze(var, axis=(2, 3))).T
         return uncertainty
-    
-    
+
+
     def _eval_gof(self, model):
         """
         Evaluate goodness-of-fit for the fitted model. Pearson chi-squared is
@@ -400,8 +400,8 @@ class PolynomialFitter:
         ])
         dof = np.sum(mask, axis=1) - (self._order + 1.0)
         return chi2, dof
-    
-    
+
+
     def _eval_basis(self, tstart, tstop, exposure=None):
         """
         Evaluate the basis functions for each time bin, i.e. polynomials of
@@ -430,14 +430,14 @@ class PolynomialFitter:
             for i in range(self._order + 1)
         ]).T
         return np.atleast_2d(basis)
-    
-    
+
+
     def _weighted_leastsq(self, X, y, w, return_cov=True):
         """
         Return the least-squares solution to a linear matrix equation, which
         minimizes the weighted Euclidean 2-norm :math:`||W^{1/2} (y - bX)||`.
         This function is adapted from `numpy` polynomial fitter.
-        
+
         Parameters
         ----------
         X : (M, N) array_like
@@ -457,16 +457,16 @@ class PolynomialFitter:
         cov : (N, N) ndarray
             The covariance matrix of the parameter estimates. The diagonal of
             this matrix are the variance estimates for each parameter.
-        
+
         Warns
         -----
         RankWarning
             The rank of the coefficient matrix in the least-squares fit is
             deficient.
-        
+
         """
         order = X.shape[1]
-        
+
         # return if all values of y are zeros
         if all(y == 0):
             b = np.full(order, 0.0)
@@ -475,22 +475,22 @@ class PolynomialFitter:
                 return b, cov
             else:
                 return b
-        
+
         # set up least squares equation with weight
         WX = w[:, None] * X
         Wy = w * y
-        
+
         # scale WX to improve condition number and solve
         scale = np.sqrt(np.square(WX).sum(axis=0))
         scale[scale == 0] = 1
         b, resids, rank, s = np.linalg.lstsq(WX / scale, Wy, rcond=None)
         b = b / scale
-        
+
         # warn on rank reduction, which indicates an ill conditioned matrix
         if self._rank_warn and rank != order:
             msg = 'The fit may be poorly conditioned'
             warnings.warn(msg, RankWarning, stacklevel=2)
-        
+
         if return_cov:
             # scale the covariance matrix, to reduce the potential bias of
             # weights
@@ -499,11 +499,11 @@ class PolynomialFitter:
             return b, scaled_cov
         else:
             return b
-    
-    
+
+
     def _iwls(self, X, y, return_cov=True, eps=0.1, veps=0.01):
         order = X.shape[1]
-        
+
         # return if all values of y are zeros
         if all(y == 0):
             b = np.full(order, 0.0)
@@ -512,33 +512,33 @@ class PolynomialFitter:
                 return b, cov
             else:
                 return b
-        
-        
+
+
         w = np.ones_like(y, dtype=np.float64)
-        
-        
+
+
         # set up least squares equation with weight
         WX = w[:, None] * X
         Wy = w * y
-        
+
         # scale WX to improve condition number and solve
         scale = np.sqrt(np.square(WX).sum(axis=0))
         scale[scale == 0] = 1
         b, resids, rank, s = np.linalg.lstsq(WX / scale, Wy, rcond=None)
         b = b / scale
-        
+
         # edm = jac_i.T @ 2*inv(hess_i) @ jac_i
         # vtest = np.mean(
         #    (diag(inv(hess_i)) - diag(inv(hess_{i-1}))) / diag(inv(hess_{i-1}))
         # )
         # convergence: (edm<eps and vtest < veps) or (edm<eps*1.0e-5)
-        
+
     # chi2_gamma (see Mighell 1999), deprecated for its not so well performance
     # =========================================================================
     # def _fit_chi2_gamma(self):
     #     self._coeffs = np.empty((self._nchans, self._order+1))
     #     self._covars = np.empty((self._nchans, self._order+1, self._order+1))
-    #     
+    #
     #     # get basis functions and set up y and weights array
     #     X = self._eval_basis(self._tstart, self._tstop, self._exposure)
     #     zero = (self._counts == 0.0)
@@ -548,7 +548,7 @@ class PolynomialFitter:
     #         funclist=[lambda c: c, lambda c: c + 1.0]
     #     )
     #     w = 1 / np.sqrt(self._counts + 1.0)
-    #     
+    #
     #     for i in range(self._nchans):
     #         self._coeffs[i], self._covars[i] = \
     #             self._weighted_leastsq(X, y[i], w[i])
@@ -625,7 +625,7 @@ if __name__ == '__main__':
 #             plt.legend()
 #         plt.savefig(f'{mu}_scaled.png', dpi=500, bbox_inches='tight')
 #         plt.close()
-#         
+#
 #         bins = 100#np.linspace(-2,2,101)
 #         #x = (bins[:-1]+bins[1:])/2
 #         dist1,bins1 = np.histogram((b1[:,0]-mu)/mu,bins=bins,density=True)

@@ -127,6 +127,14 @@ def gecam_tehist(
     # now reduce data according to erange
     PI = c_array(evts['PI'], np.int16)
     evts = evts[_mask_pi(PI, channels)]
+    # FIXME: should FLAG=2/12/245/255 be filtered before exposure calculation?
+    # FLAG 0: time is good, 1: time is ok, 2: time is bad
+    # FLAG +10: non-recommended evt given EVT_PAIR info
+    # FLAG +243: wrong gain bias
+    # EVT_PAIR: 2 bits, the first is for flight and the second is for ground
+    mask = evts['FLAG'] < 2
+    evts = evts[mask]
+    print(f'FLAG: filtered out {np.sum(~mask)} events with FLAG>=2')
     # evts = evts[c_array(evts['EVT_TYPE']) <= 2] # 3 is for over-width evts
 
     # Discretize reduced event data
@@ -347,6 +355,14 @@ def gecam_thist(file, det, gain, erange, trange, dt, t0=0.0, return_ds=True):
     # now reduce data according to erange
     PI = c_array(evts['PI'], np.int16)
     evts = evts[_mask_pi(PI, channels)]
+    # FIXME: should FLAG=2/12/245/255 be filtered before exposure calculation?
+    # FLAG 0: time is good, 1: time is ok, 2: time is bad
+    # FLAG +10: non-recommended evt given EVT_PAIR info
+    # FLAG +243: wrong gain bias
+    # EVT_PAIR: 2 bits, the first is for flight and the second is for ground
+    mask = evts['FLAG'] < 2
+    evts = evts[mask]
+    print(f'FLAG: filtered out {np.sum(~mask)} events with FLAG>=2')
     # evts = evts[c_array(evts['EVT_TYPE']) <= 2] # 3 is for over-width evts
 
     # Discretize reduced event data
@@ -462,6 +478,15 @@ def gecam_ehist(file, det, gain, erange, trange, t0=0.0, return_ds=True):
     # now reduce data according to erange
     PI = c_array(evts['PI'], np.int16)
     evts = evts[_mask_pi(PI, channels)]
+    # FIXME: should FLAG=2/12/245/255 be filtered before exposure calculation?
+    # NOTE: time will not shift too much, so these are ok to not be filtered
+    # FLAG 0: time is good, 1: time is ok, 2: time is bad
+    # FLAG +10: non-recommended evt given EVT_PAIR info
+    # FLAG +243: wrong gain bias
+    # EVT_PAIR: 2 bits, the first is for flight and the second is for ground
+    mask = evts['FLAG'] < 2
+    evts = evts[mask]
+    print(f'FLAG: filtered out {np.sum(~mask)} events with FLAG>=2')
     # evts = evts[c_array(evts['EVT_TYPE']) <= 2] # 3 is for over-width evts
 
     # Discretize reduced event data

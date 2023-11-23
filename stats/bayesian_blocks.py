@@ -315,7 +315,7 @@ def _loop_events2(N_r, T_r, ncp_prior, desc=None):
         best[R] = tmpR[imax]
 
     # -----------------------------------------------------------------
-    # Now find changepoints by iteratively peeling off the last block
+    # Now find change points by iteratively peeling off the last block
     # -----------------------------------------------------------------
     i_cp = N
     idx = N
