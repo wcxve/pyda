@@ -297,7 +297,7 @@ def plot_gecam_tehist(evt_file, t0, tstart, tstop, dt, emin=8.0, emax=8000.0):
             rates_lg.append([])
             ebins_lg.append([])
             continue
-        hist = gecam_tehist(evt_file, det, 1, erange, trange, dt, t0)
+        hist = gecam_tehist(evt_file, det, 1, erange, trange, dt, t0=t0)
         ebins_width = np.squeeze(hist['ebins'].diff('edge'))
         rate = hist['counts'] / hist['exposure'] / ebins_width
         indices = np.flatnonzero(np.any(rate > 0.0, axis=1))

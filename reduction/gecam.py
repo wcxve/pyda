@@ -15,8 +15,8 @@ __all__ = ['gecam_tehist', 'gecam_thist', 'gecam_ehist', 'gecam_events']
 
 
 def gecam_tehist(
-    file, det, gain, erange, trange, dt, stack=False, t0=0.0,
-    return_evt=False, return_ds=True
+    file, det, gain, erange, trange, dt, t0=0.0,
+    stack=False, return_evt=False, return_ds=True
 ):
     """
     Discretize raw events of GECAM in dimensions of time and energy.
@@ -35,11 +35,11 @@ def gecam_tehist(
         Time range(s) of events to be discretized.
     dt : float or None
         Sampling period in time dimension. No bins within `trange` if None.
-    stack : bool, optional
-        Whether to stack all time bins into one histogram. Defaults to False.
     t0 : float, optional
         Reference time for `trange`. If `trange` is in MET scale, then `t0`
         must be 0.0 (the default).
+    stack : bool, optional
+        Whether to stack all time bins into one histogram. Defaults to False.
     return_evt : bool, optional
         Return raw events (in dict) if True, the default is False.
     return_ds : bool, optional
@@ -697,7 +697,7 @@ if __name__ == '__main__':
 
     evts = gecam_events(file, [det], [gain], trange, erange, t0)
 
-    res = gecam_tehist(file, det, gain, erange, trange, dt, t0)
+    res = gecam_tehist(file, det, gain, erange, trange, dt, t0=t0)
     res_t = gecam_thist(file, det, gain, trange, erange, dt, t0)
     res_e = gecam_ehist(file, det, gain, erange, trange, t0)
     # import matplotlib.pyplot as plt
