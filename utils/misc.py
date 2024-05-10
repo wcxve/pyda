@@ -56,7 +56,7 @@ def get_sat_j2000(time, file):
         met = utc_to_met(time, sat)
 
     # filter out some orbit info will not be used
-    time_mask = (met.min() <= orbit[t]) & (orbit[t] <= met.max())
+    time_mask = (met.min() - 1 <= orbit[t]) & (orbit[t] <= met.max() + 1)
     orbit = orbit[time_mask]
 
     # get corresponding index of MET in orbit info

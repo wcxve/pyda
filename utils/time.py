@@ -24,9 +24,12 @@ def get_utc0(sat):
         utc0 = '2019-01-01T00:00:00'
     elif SAT == 'GECAM-C':
         utc0 = '2021-01-01T00:00:00'
+    elif SAT == 'GECAM-D':
+        utc0 = '2006-01-01T00:00:00'
     else:
         raise ValueError(
-            "`sat` must be one of 'Swift', 'Fermi', 'HXMT', and 'GECAM-A/B/C'"
+            "`sat` must be one of 'Swift', 'Fermi', 'HXMT', "
+            "and 'GECAM-A/B/C/D'"
         )
     return utc0
 

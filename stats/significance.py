@@ -58,6 +58,7 @@ def find_factor_given_significance(S, Non, Noff, alpha, cl=0.0):
 def factor_to_Ton(factor, orig_Ton, Non, Noff, alpha):
     return orig_Ton / (factor + (1 - factor)*Noff/Non*alpha)
 
+
 def factor_to_distance(factor, orig_distance):
     return orig_distance / np.sqrt(factor)
 

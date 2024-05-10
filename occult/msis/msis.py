@@ -175,7 +175,7 @@ def element_density(
     # The Fortran code puts 9.9e-38 in as NaN
     # Have to make sure this doesn't overlap 0 due to really small values
     # so atol should be less than the comparison value
-    # output[np.isclose(output, 9.9e-38, atol=1e-38)] = np.nan
+    output[np.isclose(output, 9.9e-38, atol=1e-38)] = 0.0
     # Note: NaN usually occurs at low altitude for low density air components,
     # Note: it is reasonale to keep this small value in occultation analysis
 

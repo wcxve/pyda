@@ -6,7 +6,7 @@ Created on Sun Apr 16 03:10:05 2023
 """
 
 import numpy as np
-from astropy.coordinates import get_body, SkyCoord
+from astropy.coordinates import get_body, SkyCoord, EarthLocation, ITRS, GCRS
 from astropy.io import fits
 from scipy.spatial.transform import Rotation as R
 
@@ -101,6 +101,8 @@ def get_sat_to_payload_quat(sat):
         return (1.0, 0.0, 0.0, 0.0)
     elif SAT == 'GECAM-C':
         return (-0.5, -0.5, -0.5, 0.5)
+    elif SAT == 'GECAM-D':
+        return (0.0, 0.0, 0.0, 1.0)
     else:
         raise ValueError('`sat` must be "Fermi", "HXMT", or "GECAM-A/B/C"')
 
@@ -181,6 +183,9 @@ def get_det_payload(sat, det=None):
             0.0, 210.0, 150.0,  90.0,  30.0, 330.0,
             0.0, 150.0, 210.0, 270.0, 330.0,  30.0
         ])
+    elif SAT == 'GECAM-D':
+        det_theta = np.array([90.0, 180.0, 90.0, 90.0, 90.0])
+        det_phi = np.array([90.0, 0.0, 270.0, 180.0, 180.0])
     else:
         raise ValueError('`sat` must be "Fermi", "HXMT", or "GECAM-A/B/C"')
 
@@ -259,8 +264,12 @@ def object_angle(obj, t0, tstart, tstop, posatt_file, det=None):
         elif sat == 'GECAM-C':
             ext = 'Orbit_Attitude'
             t = 'TIME'
-            Q_pre = ['Q2', 'Q3', 'Q4', 'Q1'] # until 59537900
-            Q = ['Q1', 'Q2', 'Q3', 'Q4'] # from 59538144
+            Q_pre = ['Q2', 'Q3', 'Q4', 'Q1']  # until 59537900
+            Q = ['Q1', 'Q2', 'Q3', 'Q4']  # from 59538144
+        elif sat == 'GECAM-D':
+            ext = 'Orbit_Attitude'
+            t = 'TIME'
+            Q = ['Q1', 'Q2', 'Q3', 'Q4']
         else:
             raise ValueError('POSATT not supported!')
         posatt = hdul[ext].data
@@ -310,6 +319,23 @@ def object_angle(obj, t0, tstart, tstop, posatt_file, det=None):
     # angle = _angle_between2(src_j2000, det_j2000)
 
     return np.column_stack((met, angle))
+
+from astropy.coordinates import EarthLocation, ITRS, GCRS
+def get_site_j2000(utc, site):
+    EarthLocation._get_site_registry(force_download=True)
+    site_loc = EarthLocation.of_site(site)
+    loc = ITRS(
+        x=site_loc.x,
+        y=site_loc.y,
+        z=site_loc.z,
+        representation_type='cartesian',
+        obstime=utc
+    ).transform_to(
+        GCRS(obstime=utc)
+    )
+    return np.array(
+        [loc.cartesian.x.value, loc.cartesian.y.value, loc.cartesian.z.value]
+    )
 
 
 if __name__ == '__main__':

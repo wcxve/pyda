@@ -13,7 +13,7 @@ import astropy.units as u
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from astropy.coordinates import GCRS, ITRS, WGS84GeodeticRepresentation
-from astropy.constants import R_earth
+from astropy.constants.iau2015 import R_earth
 from astropy.time import Time
 from pymsis.utils import get_f107_ap
 from tqdm import tqdm

@@ -15,7 +15,7 @@ __all__ = ['gecam_tehist', 'gecam_thist', 'gecam_ehist', 'gecam_events']
 
 
 def gecam_tehist(
-    file, det, gain, erange, trange, dt, t0=0.0,
+    file, det, gain, erange, trange, dt, stack=False, t0=0.0,
     return_evt=False, return_ds=True
 ):
     """
@@ -35,6 +35,8 @@ def gecam_tehist(
         Time range(s) of events to be discretized.
     dt : float or None
         Sampling period in time dimension. No bins within `trange` if None.
+    stack : bool, optional
+        Whether to stack all time bins into one histogram. Defaults to False.
     t0 : float, optional
         Reference time for `trange`. If `trange` is in MET scale, then `t0`
         must be 0.0 (the default).
@@ -142,6 +144,12 @@ def gecam_tehist(
     T = c_array(evts['TIME'])
     bins = (cbins, _tbins)
     counts = np.histogram2d(PI, T, bins)[0]
+
+    if stack:
+        counts = np.sum(counts, axis=1, keepdims=True)
+        exposure = np.atleast_1d(np.sum(exposure))
+        tbins = np.atleast_2d([tbins[0][0], tbins[-1][-1]])
+
     rate = counts/exposure
     ebins_width = ebins[:, 1] - ebins[:, 0]
     flux = rate/ebins_width[:, None]

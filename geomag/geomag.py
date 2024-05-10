@@ -11,7 +11,7 @@ from pyda.utils.coordinate import radec_to_cart, cart_to_sph
 
 def geomag_angle(aux_file, posatt_file, utc0):
     # TODO: igrf should not be broadcast over coordinates
-    # raise ValueError('B/C sat must be predefined !!! see Line 17 & 20')
+    raise ValueError('B/C sat must be predefined !!! see Line 17 & 20')
     with fits.open(aux_file) as hdul:
         aux = hdul[1].data
     utc = Time(met_to_utc(aux['TIME'], 'GECAM-C'), scale='utc')
@@ -60,8 +60,8 @@ def geomag_angle(aux_file, posatt_file, utc0):
 if __name__ == '__main__':
     # aux_file = '/Users/xuewc/Downloads/aux/gb_aux_210710_01_v01.fits'
     # mags = geomag_angle(aux_file, '2021-07-10T01:46:36.709997')
-    aux_file = '/Users/xuewc/BurstData/busrt_candidate/gc_aux_230715_07_v00.fits'
-    posatt_file = '/Users/xuewc/BurstData/busrt_candidate/gc_posatt_230715_07_v00.fits'
+    aux_file = '/Users/xuewc/ObsData/busrt_candidate/gc_aux_230715_07_v00.fits'
+    posatt_file = '/Users/xuewc/ObsData/busrt_candidate/gc_posatt_230715_07_v00.fits'
     mags = geomag_angle(aux_file, posatt_file, '2023-07-15T07:11:02.400')
     # aux_file = '/Users/xuewc/BurstData/busrt_candidate/gc_aux_230816_13_v00.fits'
     # posatt_file = '/Users/xuewc/BurstData/busrt_candidate/gc_posatt_230816_13_v00.fits'
