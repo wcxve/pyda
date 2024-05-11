@@ -559,7 +559,7 @@ if __name__ == '__main__':
     dets = list(range(1, 7))
     erange = [6, 15, 30, 70, 100, 150, 200, 300, 500, 1000, 4000]
     plot_gecam_total_thist(
-        evt_file, dets, t0, -10, 20, 0.2, erange=erange, palette='husl'
+        evt_file, dets, -10, 20, 0.2, t0, erange=erange, palette='husl'
     )
 
     # >>> 分能段光变 >>>
