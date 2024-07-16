@@ -13,7 +13,7 @@ from astropy.cosmology import Planck18, z_at_value
 def significance_lima(Non, Noff, alpha):
     term1 = Non * np.log((1 + alpha)/alpha * Non/(Non + Noff))
     term2 = Noff * np.log((1 + alpha) * Noff/(Non + Noff))
-    return np.sqrt(2*(term1 + term2))
+    return np.where(Non >= alpha * Noff, 1, -1) * np.sqrt(2*(term1 + term2))
 
 
 def significance_reduce_signal_by(factors, Non, Noff, alpha):

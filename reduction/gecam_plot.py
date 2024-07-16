@@ -582,3 +582,90 @@ if __name__ == '__main__':
     # axes[0].set_title(f'GECAM-C GRD {dets}, $\Delta t=0.1$ s')
     # axes[-1].set_xlabel('$t - T_0$ [s]')
     # <<< 分能段光变 <<<
+
+    # evt_file = '/Users/xuewc/ObsData/GRB240402B/gcg_evt_240402_08_v00.fits'
+    # dets = [1, 3, 5]
+    # tstart = -15
+    # tstop = 20
+    # dt = 0.1
+    # t0 = 102588466.0
+    # erange: list[float] = (6.0, 30.0, 100.0, 300.0, 500.0, 1000.0, 4000.0)
+    # sep_energy: float = 500.0
+    #
+    # t0 = float(t0)
+    # tstart = float(tstart)
+    # tstop = float(tstop)
+    # dt = float(dt)
+    # erange = np.atleast_1d(erange).astype(float)
+    # erange.sort()
+    # sep_energy = float(sep_energy)
+    # min_energy = min(erange)
+    # max_energy = max(erange)
+    # dets = np.atleast_1d(dets).astype(int)
+    #
+    # hg_list = []
+    # lg_list = []
+    # for det in dets:
+    #     if min_energy < sep_energy:
+    #         hg = gecam_tehist(
+    #             file=evt_file,
+    #             det=det,
+    #             gain=0,
+    #             erange=[min_energy, sep_energy],
+    #             trange=[tstart, tstop],
+    #             dt=dt,
+    #             t0=t0
+    #         )
+    #         hg_list.append(hg)
+    #
+    #     if max_energy > sep_energy:
+    #         lg = gecam_tehist(
+    #             file=evt_file,
+    #             det=det,
+    #             gain=1,
+    #             erange=[sep_energy, max_energy],
+    #             trange=[tstart, tstop],
+    #             dt=dt,
+    #             t0=t0
+    #         )
+    #         lg_list.append(lg)
+    #
+    # n = len(erange)
+    # t = hg_list[0]['time']
+    # tbins = hg_list[0]['tbins']
+    # tbins = np.append(tbins[:, 0], tbins[-1, 1])
+    #
+    # fig = plt.figure(figsize=(max(4.0, n * 0.6), max(3.0, n * 0.6)))
+    # label_x = tstop - 0.05 * (tstop - tstart)
+    #
+    # rates = []
+    # errors = []
+    # for i in range(n):
+    #     if i == 0:
+    #         elow = min_energy
+    #         ehigh = max_energy
+    #     else:
+    #
+    #         elow, ehigh = erange[i - 1: i + 1]
+    #
+    #     rate = 0.0
+    #     error = 0.0
+    #     for d in lg_list + hg_list:
+    #         ebins_low = d['ebins'].sel(edge='start')
+    #         ebins_high = d['ebins'].sel(edge='stop')
+    #         emask = (elow <= ebins_low) & (ebins_high <= ehigh)
+    #         rate += d['rate'].where(emask, drop=True).sum(dim='channel')
+    #         var = np.square(d['rate_error'].where(emask, drop=True))
+    #         var = var.sum(dim='channel')
+    #         error += np.sqrt(var)
+    #     rates.append(rate)
+    #     errors.append(error)
+    # data = [hg_list[0].time.values]
+    # for r, e in zip(rates[1:], errors[1:]):
+    #     data.append(r)
+    #     data.append(e)
+    # lc = np.column_stack(data)
+    # header = 'time \t'
+    # for i in range(len(erange) - 1):
+    #     header += f'{erange[i]}-{erange[i + 1]} keV rate & error \t'
+    # np.savetxt('/Users/xuewc/gecamc_lc.txt', lc, header=header, delimiter='\t')
