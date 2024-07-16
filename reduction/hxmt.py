@@ -33,7 +33,6 @@ def get_pattern_matched_file(pattern, pattern2=None):
             )
 
 
-
 def specify_hxmt_gti(infile, intervals, outfile):
     intervals = np.reshape(intervals, newshape=(-1, 2))
 
