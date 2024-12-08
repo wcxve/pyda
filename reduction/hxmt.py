@@ -142,7 +142,7 @@ def le_reduction(
     if bkg_intervals is not None:
         if len(bkg_intervals) % 2 != 0:
             raise ValueError('length of `bkg_intervals` is not multiple of 2')
-        if np.any(np.diff(bkg_intervals) <= 0.0):
+        if np.any(np.diff(bkg_intervals) < 0.0):
             raise ValueError('`bkg_intervals` is not incremental in time')
         if bkg_intervals[0] < tstart:
             raise ValueError('`bkg_intervals[0]` is smaller than `tstart`')
@@ -280,7 +280,7 @@ def le_reduction(
         )
 
     # generate detector response file
-    phafile = get_pattern_matched_file(f'{spec_file}_g*_*.pha')
+    phafile = get_pattern_matched_file(f'{spec_file}_g0.pha')
     os.system(
         f'lerspgen '
         f'phafile="{phafile}" '
@@ -390,7 +390,7 @@ def me_reduction(
     if bkg_intervals is not None:
         if len(bkg_intervals) % 2 != 0:
             raise ValueError('length of `bkg_intervals` is not multiple of 2')
-        if np.any(np.diff(bkg_intervals) <= 0.0):
+        if np.any(np.diff(bkg_intervals) ):
             raise ValueError('`bkg_intervals` is not incremental in time')
         if bkg_intervals[0] < tstart:
             raise ValueError('`bkg_intervals[0]` is smaller than `tstart`')
@@ -526,7 +526,7 @@ def me_reduction(
         )
 
     # generate detector response file
-    phafile = get_pattern_matched_file(f'{spec_file}_g*_*.pha')
+    phafile = get_pattern_matched_file(f'{spec_file}_g0.pha')
     os.system(
         f'merspgen '
         f'phafile="{phafile}" '
@@ -636,7 +636,7 @@ def he_reduction(
     if bkg_intervals is not None:
         if len(bkg_intervals) % 2 != 0:
             raise ValueError('length of `bkg_intervals` is not multiple of 2')
-        if np.any(np.diff(bkg_intervals) <= 0.0):
+        if np.any(np.diff(bkg_intervals) < 0.0):
             raise ValueError('`bkg_intervals` is not incremental in time')
         if bkg_intervals[0] < tstart:
             raise ValueError('`bkg_intervals[0]` is smaller than `tstart`')
@@ -767,7 +767,7 @@ def he_reduction(
         )
 
     # generate detector response file
-    phafile = get_pattern_matched_file(f'{spec_file}_g*_*.pha')
+    phafile = get_pattern_matched_file(f'{spec_file}_g0.pha')
     os.system(
         f'herspgen '
         f'phafile="{phafile}" '
