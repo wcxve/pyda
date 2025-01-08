@@ -162,11 +162,21 @@ def _sanitize_input(
     t = [np.array(i, dtype=np.float64, order='C') for i in t]
     live_time = [np.array(i, dtype=np.float64, order='C') for i in live_time]
 
+    if tstart is not None:
+        mask = [(tstart <= ti) & (ti <= tstop) for ti in t]
+        if not any(i.any() for i in mask):
+            raise ValueError('no data points between `tstart` and `tstop`')
+        t = [ti[maski] for ti, maski in zip(t, mask)]
+        live_time = [lti[maski] for lti, maski in zip(live_time, mask)]
+    else:
+        tstart = min(ti[0] for ti in t)
+        tstop = max(ti[-1] for ti in t)
+
     if ltstart is None:
-        ltstart = [i[0] for i in live_time]
+        ltstart = [tstart] * len(live_time)
 
     if ltstop is None:
-        ltstop = [i[-1] for i in live_time]
+        ltstop = [tstop] * len(live_time)
 
     if not isinstance(ltstart, (float, Sequence)):
         raise TypeError('`ltstart` must be a float or a list of float')
@@ -177,14 +187,12 @@ def _sanitize_input(
     if isinstance(ltstart, Sequence) \
         and any(np.shape(i) != () for i in ltstart):
             raise ValueError('`ltstart` must be a scalar or a list of scalar')
-    else:
-        ltstart = [ltstart]
+    ltstart = np.array(ltstart, dtype=np.float64, order='C', ndmin=1)
 
     if isinstance(ltstop, Sequence) \
         and any(np.shape(i) != () for i in ltstop):
             raise ValueError('`ltstop` must be a scalar or a list of scalar')
-    else:
-        ltstop = [ltstop]
+    ltstop = np.array(ltstop, dtype=np.float64, order='C', ndmin=1)
 
     if len(ltstart) != len(t):
         raise ValueError(
@@ -198,24 +206,16 @@ def _sanitize_input(
             'are not the same'
         )
 
-    ltstart = np.array(ltstart, dtype=np.float64, order='C')
-    ltstop = np.array(ltstop, dtype=np.float64, order='C')
-
     for i, j in zip(ltstart, ltstop):
         if i >= j:
             raise ValueError('`ltstart` must be less than `ltstop`')
 
-    if tstart is not None:
-        mask = [(tstart <= ti) & (ti <= tstop) for ti in t]
-        if not any(i.any() for i in mask):
-            raise ValueError('no data points between `tstart` and `tstop`')
-        t = [ti[maski] for ti, maski in zip(t, mask)]
-        live_time = [lti[maski] for lti, maski in zip(live_time, mask)]
-    else:
-        tstart = min(ti[0] for ti in t)
-        tstop = max(ti[-1] for ti in t)
+        if i < tstart:
+            raise ValueError('`ltstart` must be greater than `tstart`')
 
-    for i, j in zip(ltstart, ltstop):
+        if j > tstop:
+            raise ValueError('`ltstop` must be less than `tstop`')
+
         for k in live_time:
             if i > k[0]:
                 raise ValueError(
@@ -580,11 +580,9 @@ def blocks_tte(
     show_progress : bool, optional
         Whether to show the information of the progress. The default is True.
     tstart : float, optional
-        The start time used to filter each data in `t`.
-        The default is the minimum of `t`.
+        The start time of the blocks. The default is the minimum of `t`.
     tstop : float, optional
-        The stop time used to filter each data in `t`.
-        The default is the maximum of `t`.
+        The stop time of the blocks. The default is the maximum of `t`.
     ltstart : float or sequence of float, optional
         The corresponding live time at `tstart` for each data in `t`.
     ltstop : float or sequence of float, optional
@@ -714,8 +712,10 @@ def blocks_tte(
                 f'  FPR : {fpr_hist[0]:.2e} -> {fpr:.2e}\n'
             )
 
-    counts = data.n_remainder[cp][:-1] - data.n_remainder[cp][1:]
-    exposure = data.t_remainder[cp][:-1] - data.t_remainder[cp][1:]
+    nr = data.n_remainder[..., cp]
+    tr = data.t_remainder[..., cp]
+    counts = nr[..., :-1] - nr[..., 1:]
+    exposure = tr[..., :-1] - tr[..., 1:]
 
     prob = (
         ChangePointPosterior(locs=data.voronoi[:1], prob=np.array([1.0])),
