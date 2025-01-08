@@ -68,6 +68,12 @@ class BayesianBlocksResult(NamedTuple):
     edge: NDArray
     """The edges of the blocks."""
 
+    counts: NDArray
+    """The counts of each block."""
+
+    exposure: NDArray
+    """The exposure of each block."""
+
     cp: NDArray
     """The index of change points."""
 
@@ -87,10 +93,21 @@ class BayesianBlocksResult(NamedTuple):
     """The prior on the number of change points for each iteration."""
 
 
-def _sanitize_check(
+def _sanitize_input(
     t: NDArray | Sequence[NDArray],
-    live_time: NDArray | Sequence[NDArray] | None = None,
-) -> None:
+    live_time: NDArray | Sequence[NDArray] | None,
+    tstart: float | None,
+    tstop: float | None,
+    ltstart: float | Sequence[float] | None,
+    ltstop: float | Sequence[float] | None,
+) -> tuple[
+    Sequence[NDArray],
+    Sequence[NDArray],
+    float,
+    float,
+    NDArray,
+    NDArray,
+]:
     if not isinstance(t, (np.ndarray, Sequence)):
         raise TypeError('`t` must be a numpy array or a list of numpy arrays')
 
@@ -104,11 +121,15 @@ def _sanitize_check(
         raise ValueError('elements of `t` must be ordered')
 
     if live_time is not None:
-        if not isinstance(live_time, type(t)):
+        if not isinstance(live_time, (np.ndarray, Sequence)):
             raise TypeError(
-                f'type of `t` ({type(t).__name__}) and `live_time` '
-                f'({type(live_time).__name__}) are not the same'
+                '`live_time` must be a numpy array or a list of numpy arrays'
             )
+        if isinstance(live_time, Sequence):
+            if not all(isinstance(lti, np.ndarray) for lti in live_time):
+                raise TypeError('elements of `live_time` must be numpy arrays')
+        else:
+            live_time = [live_time]
 
         if len(t) != len(live_time):
             raise ValueError(
@@ -116,47 +137,111 @@ def _sanitize_check(
                 f'({len(live_time)}) are not the same'
             )
 
-        if isinstance(t, list):
-            if not all(isinstance(lti, np.ndarray) for lti in live_time):
-                raise TypeError('elements of `live_time` must be numpy arrays')
+        if not all(isinstance(lti, np.ndarray) for lti in live_time):
+            raise TypeError('elements of `live_time` must be numpy arrays')
 
-            len_t = [len(ti) for ti in t]
-            len_lt = [len(lti) for lti in live_time]
-            if len_t != len_lt:
+        len_t = [len(ti) for ti in t]
+        len_lt = [len(lti) for lti in live_time]
+        if len_t != len_lt:
+            raise ValueError(
+                f'length of each element of `t` ({len_t}) and '
+                f'`live_time` ({len_lt}) are not the same'
+            )
+
+        if any(
+            np.any(np.diff(lti) > np.diff(ti))
+            for ti, lti in zip(t, live_time)
+        ):
+            raise ValueError(
+                'interval of `live_time` cannot be larger than that of '
+                '`t`'
+            )
+    else:
+        live_time = t
+
+    t = [np.array(i, dtype=np.float64, order='C') for i in t]
+    live_time = [np.array(i, dtype=np.float64, order='C') for i in live_time]
+
+    if ltstart is None:
+        ltstart = [i[0] for i in live_time]
+
+    if ltstop is None:
+        ltstop = [i[-1] for i in live_time]
+
+    if not isinstance(ltstart, (float, Sequence)):
+        raise TypeError('`ltstart` must be a float or a list of float')
+
+    if not isinstance(ltstop, (float, Sequence)):
+        raise TypeError('`ltstop` must be a float or a list of float')
+
+    if isinstance(ltstart, Sequence) \
+        and any(np.shape(i) != () for i in ltstart):
+            raise ValueError('`ltstart` must be a scalar or a list of scalar')
+    else:
+        ltstart = [ltstart]
+
+    if isinstance(ltstop, Sequence) \
+        and any(np.shape(i) != () for i in ltstop):
+            raise ValueError('`ltstop` must be a scalar or a list of scalar')
+    else:
+        ltstop = [ltstop]
+
+    if len(ltstart) != len(t):
+        raise ValueError(
+            f'length of `ltstart` ({len(ltstart)}) and `t` ({len(t)}) '
+            'are not the same'
+        )
+
+    if len(ltstop) != len(t):
+        raise ValueError(
+            f'length of `ltstop` ({len(ltstop)}) and `t` ({len(t)}) '
+            'are not the same'
+        )
+
+    ltstart = np.array(ltstart, dtype=np.float64, order='C')
+    ltstop = np.array(ltstop, dtype=np.float64, order='C')
+
+    for i, j in zip(ltstart, ltstop):
+        if i >= j:
+            raise ValueError('`ltstart` must be less than `ltstop`')
+
+    if tstart is not None:
+        mask = [(tstart <= ti) & (ti <= tstop) for ti in t]
+        if not any(i.any() for i in mask):
+            raise ValueError('no data points between `tstart` and `tstop`')
+        t = [ti[maski] for ti, maski in zip(t, mask)]
+        live_time = [lti[maski] for lti, maski in zip(live_time, mask)]
+    else:
+        tstart = min(ti[0] for ti in t)
+        tstop = max(ti[-1] for ti in t)
+
+    for i, j in zip(ltstart, ltstop):
+        for k in live_time:
+            if i > k[0]:
                 raise ValueError(
-                    f'length of each element of `t` ({len_t}) and '
-                    f'`live_time` ({len_lt}) are not the same'
+                    'filtered `live_time` is less than `ltstart`, check '
+                    'the `live_time` and `ltstart`'
+                )
+            if j < k[-1]:
+                raise ValueError(
+                    'filtered `live_time` is greater than `ltstop`, check '
+                    'the `live_time` and `ltstop`'
                 )
 
-            if any(
-                np.any(np.diff(lti) > np.diff(ti))
-                for ti, lti in zip(t, live_time)
-            ):
-                raise ValueError(
-                    'interval of `live_time` cannot be larger than that of '
-                    '`t`'
-                )
+    return t, live_time, tstart, tstop, ltstart, ltstop
 
 
 def _get_data_from_tte(
     t: NDArray | list[NDArray],
     live_time: NDArray | list[NDArray]| None = None,
+    tstart: float | None = None,
+    tstop: float | None = None,
+    ltstart: float | None = None,
+    ltstop: float | None = None,
 ) -> BayesianBlocksData:
-    _sanitize_check(t, live_time)
-
-    if isinstance(t, np.ndarray):
-        t = [t]
-
-    if live_time is None:
-        live_time = t
-
-    if isinstance(live_time, np.ndarray):
-        live_time = [live_time]
-
-    t = [np.asarray(ti, dtype=np.float64, order='C') for ti in t]
-    live_time = [
-        np.asarray(lti, dtype=np.float64, order='C') for lti in live_time
-    ]
+    t, live_time, tstart, tstop, ltstart, ltstop = _sanitize_input(
+        t, live_time, tstart, tstop, ltstart, ltstop
+    )
 
     t_unq = []
     lt_unq = []
@@ -170,7 +255,7 @@ def _get_data_from_tte(
     t_all = np.hstack(t_unq)
     argsort = t_all.argsort()
     t_all = np.sort(t_all)
-    edges = np.hstack([t_all[0], 0.5 * (t_all[1:] + t_all[:-1]), t_all[-1]])
+    edges = np.hstack([tstart, 0.5 * (t_all[1:] + t_all[:-1]), tstop])
 
     n_total = sum(map(len, t))
     n_row = len(t_unq)
@@ -197,7 +282,7 @@ def _get_data_from_tte(
     t_cumsum = np.zeros_like(n_cumsum, dtype=np.float64)
     for i in range(n_row):
         unq_i = lt_unq[i]
-        t_cs = np.hstack((unq_i[0], (unq_i[1:] + unq_i[:-1])/2.0, unq_i[-1]))
+        t_cs = np.hstack((ltstart[i], (unq_i[1:] + unq_i[:-1])/2.0, ltstop[i]))
         t_cumsum[i] = t_cs[t_idx[i]]
     t_remainder = t_cumsum[:, -1:] - t_cumsum
 
@@ -472,6 +557,10 @@ def blocks_tte(
     p0: float = 0.05,
     iteration: int = 0,
     show_progress: bool = True,
+    tstart: float | None = None,
+    tstop: float | None = None,
+    ltstart: float | None = None,
+    ltstop: float | None = None,
 ) -> BayesianBlocksResult:
     """Run the Bayesian Blocks algorithm on the time-tagged event data.
 
@@ -481,29 +570,65 @@ def blocks_tte(
         The time-tagged event data. If a sequence of ndarray is given, each
         element is treated as a separate series.
     live_time : ndarray or sequence of ndarray, optional
-        The live time of each event. If not given, the live time is assumed to
-        be the same as the time-tagged event data.
+        The live time of each event. If not given, `live_time` is identical
+        to `t`.
     p0 : float, optional
         The false positive rate. The default is 0.05.
     iteration : int, optional
         The number of iterations to run to ensure overall false positive rate
         converge to `p0`. The default is 0.
+    show_progress : bool, optional
+        Whether to show the information of the progress. The default is True.
+    tstart : float, optional
+        The start time used to filter each data in `t`.
+        The default is the minimum of `t`.
+    tstop : float, optional
+        The stop time used to filter each data in `t`.
+        The default is the maximum of `t`.
+    ltstart : float or sequence of float, optional
+        The corresponding live time at `tstart` for each data in `t`.
+    ltstop : float or sequence of float, optional
+        The corresponding live time at `tstop` for each data in `t`.
 
     Returns
     -------
     BayesianBlocksResult
         The result of the Bayesian Blocks algorithm.
     """
+    p0 = float(p0)
+    iteration = int(iteration)
+    show_progress = bool(show_progress)
+    if tstart is not None:
+        tstart = float(tstart)
+    if tstop is not None:
+        tstop = float(tstop)
+
     if p0 <= 0.0 or p0 >= 1.0:
         raise ValueError('`p0` must be within (0,1)')
 
-    if iteration < 0 or type(iteration) is not int:
-        raise ValueError('`iteration` must be non-negative integer')
+    if iteration < 0:
+        raise ValueError('`iteration` must be non-negative')
+
+    if (tstart is not None) and (live_time is not None) \
+            and ((ltstart is None) or (ltstop is None)):
+        raise ValueError(
+            '`ltstart` and `ltstop` must be provided if `tstart`, `tstop` and '
+            '`live_time` are all provided'
+        )
+
+    if ((tstart is None) + (tstop is None)) % 2:
+        raise ValueError('`tstart` and `tstop` must be both provided')
+    elif ((ltstart is None) + (ltstop is None)) % 2:
+        raise ValueError('`ltstart` and `ltstop` must be both provided')
+
+    if tstart is not None:
+        if tstart >= tstop:
+            raise ValueError('`tstart` must be less than `tstop`')
 
     len8_rjust = lambda s: str(s).rjust(2).rjust(5).ljust(8)
     len8_ljust = lambda s: str(s).ljust(2).rjust(5).ljust(8)
 
-    data = _get_data_from_tte(t, live_time)
+    data = _get_data_from_tte(t, live_time, tstart, tstop, ltstart, ltstop)
     n = data.n_data
     n_remainder = data.n_remainder
     t_remainder = data.t_remainder
@@ -589,6 +714,9 @@ def blocks_tte(
                 f'  FPR : {fpr_hist[0]:.2e} -> {fpr:.2e}\n'
             )
 
+    counts = data.n_remainder[cp][:-1] - data.n_remainder[cp][1:]
+    exposure = data.t_remainder[cp][:-1] - data.t_remainder[cp][1:]
+
     prob = (
         ChangePointPosterior(locs=data.voronoi[:1], prob=np.array([1.0])),
     )
@@ -610,6 +738,8 @@ def blocks_tte(
     return BayesianBlocksResult(
         data=data,
         edge=data.voronoi[cp],
+        counts=counts,
+        exposure=exposure,
         cp=cp,
         prob=prob,
         significance=significance,
