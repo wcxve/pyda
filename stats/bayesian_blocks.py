@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from sys import stdout
-from typing import Literal, NamedTuple, Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
-import numpy as np
 import numexpr as ne
+import numpy as np
 from scipy.stats import norm
-from tqdm.auto import trange, tqdm
+from tqdm.auto import tqdm, trange
 
 if TYPE_CHECKING:
     from numpy import ndarray as NDArray
 
-__all__ = ['blocks_tte']
+__all__ = ['blocks_binned', 'blocks_tte']
 
 
 class BayesianBlocksData(NamedTuple):
@@ -108,7 +109,7 @@ def _sanitize_input(
     NDArray,
     NDArray,
 ]:
-    if not isinstance(t, (np.ndarray, Sequence)):
+    if not isinstance(t, np.ndarray | Sequence):
         raise TypeError('`t` must be a numpy array or a list of numpy arrays')
 
     if isinstance(t, Sequence):
@@ -121,7 +122,7 @@ def _sanitize_input(
         raise ValueError('elements of `t` must be ordered')
 
     if live_time is not None:
-        if not isinstance(live_time, (np.ndarray, Sequence)):
+        if not isinstance(live_time, np.ndarray | Sequence):
             raise TypeError(
                 '`live_time` must be a numpy array or a list of numpy arrays'
             )
@@ -150,11 +151,10 @@ def _sanitize_input(
 
         if any(
             np.any(np.diff(lti) > np.diff(ti))
-            for ti, lti in zip(t, live_time)
+            for ti, lti in zip(t, live_time, strict=False)
         ):
             raise ValueError(
-                'interval of `live_time` cannot be larger than that of '
-                '`t`'
+                'interval of `live_time` cannot be larger than that of `t`'
             )
     else:
         live_time = t
@@ -166,8 +166,10 @@ def _sanitize_input(
         mask = [(tstart <= ti) & (ti <= tstop) for ti in t]
         if not any(i.any() for i in mask):
             raise ValueError('no data points between `tstart` and `tstop`')
-        t = [ti[maski] for ti, maski in zip(t, mask)]
-        live_time = [lti[maski] for lti, maski in zip(live_time, mask)]
+        t = [ti[maski] for ti, maski in zip(t, mask, strict=False)]
+        live_time = [
+            lti[maski] for lti, maski in zip(live_time, mask, strict=False)
+        ]
     else:
         tstart = min(ti[0] for ti in t)
         tstop = max(ti[-1] for ti in t)
@@ -178,20 +180,20 @@ def _sanitize_input(
     if ltstop is None:
         ltstop = [tstop] * len(live_time)
 
-    if not isinstance(ltstart, (float, Sequence)):
+    if not isinstance(ltstart, float | Sequence):
         raise TypeError('`ltstart` must be a float or a list of float')
 
-    if not isinstance(ltstop, (float, Sequence)):
+    if not isinstance(ltstop, float | Sequence):
         raise TypeError('`ltstop` must be a float or a list of float')
 
-    if isinstance(ltstart, Sequence) \
-        and any(np.shape(i) != () for i in ltstart):
-            raise ValueError('`ltstart` must be a scalar or a list of scalar')
+    if isinstance(ltstart, Sequence) and any(
+        np.shape(i) != () for i in ltstart
+    ):
+        raise ValueError('`ltstart` must be a scalar or a list of scalar')
     ltstart = np.array(ltstart, dtype=np.float64, order='C', ndmin=1)
 
-    if isinstance(ltstop, Sequence) \
-        and any(np.shape(i) != () for i in ltstop):
-            raise ValueError('`ltstop` must be a scalar or a list of scalar')
+    if isinstance(ltstop, Sequence) and any(np.shape(i) != () for i in ltstop):
+        raise ValueError('`ltstop` must be a scalar or a list of scalar')
     ltstop = np.array(ltstop, dtype=np.float64, order='C', ndmin=1)
 
     if len(ltstart) != len(t):
@@ -206,7 +208,7 @@ def _sanitize_input(
             'are not the same'
         )
 
-    for i, j in zip(ltstart, ltstop):
+    for i, j in zip(ltstart, ltstop, strict=False):
         if i >= j:
             raise ValueError('`ltstart` must be less than `ltstop`')
 
@@ -233,7 +235,7 @@ def _sanitize_input(
 
 def _get_data_from_tte(
     t: NDArray | list[NDArray],
-    live_time: NDArray | list[NDArray]| None = None,
+    live_time: NDArray | list[NDArray] | None = None,
     tstart: float | None = None,
     tstop: float | None = None,
     ltstart: float | None = None,
@@ -246,7 +248,7 @@ def _get_data_from_tte(
     t_unq = []
     lt_unq = []
     counts = []
-    for ti, lt in zip(t, live_time):
+    for ti, lt in zip(t, live_time, strict=False):
         unq, idx, c = np.unique(lt, return_index=True, return_counts=True)
         t_unq.append(ti[idx + c - 1])
         lt_unq.append(unq)
@@ -273,7 +275,7 @@ def _get_data_from_tte(
 
     # fill the data matrix
     for i in range(n_row):
-        n[i][n_idx[i] : n_idx[i+1]] = counts[i]
+        n[i][n_idx[i] : n_idx[i + 1]] = counts[i]
     n = n[:, argsort]
     n_cumsum = np.hstack((zeros, n.cumsum(axis=1)))
     n_remainder = n_cumsum[:, -1:] - n_cumsum
@@ -282,7 +284,9 @@ def _get_data_from_tte(
     t_cumsum = np.zeros_like(n_cumsum, dtype=np.float64)
     for i in range(n_row):
         unq_i = lt_unq[i]
-        t_cs = np.hstack((ltstart[i], (unq_i[1:] + unq_i[:-1])/2.0, ltstop[i]))
+        t_cs = np.hstack(
+            (ltstart[i], (unq_i[1:] + unq_i[:-1]) / 2.0, ltstop[i])
+        )
         t_cumsum[i] = t_cs[t_idx[i]]
     t_remainder = t_cumsum[:, -1:] - t_cumsum
 
@@ -338,7 +342,7 @@ _fitness1 = ne.NumExpr(
         ('best', np.float64),
     ),
     optimization='aggressive',
-    truediv=True
+    truediv=True,
 )
 
 
@@ -363,7 +367,11 @@ def _loop1(
     # -----------------------------------------------------------------
     # Start core loop, add one cell at each iteration
     # -----------------------------------------------------------------
-    range_ = trange(1, n + 1, desc=desc, file=stdout) if progress else range(1, n + 1)
+    range_ = (
+        trange(1, n + 1, desc=desc, file=stdout)
+        if progress
+        else range(1, n + 1)
+    )
     for r in range_:
         ar = tmp[:r]
         _fitness1(
@@ -376,7 +384,7 @@ def _loop1(
             out=ar,
             order='K',
             casting='no',
-            ex_uses_vml=False
+            ex_uses_vml=False,
         )
 
         imax = ar.argmax()
@@ -411,7 +419,7 @@ _fitness2 = ne.NumExpr(
         ('t', np.float64),
     ),
     optimization='aggressive',
-    truediv=True
+    truediv=True,
 )
 
 
@@ -456,7 +464,7 @@ def _loop2(
             out=tmp_r,
             order='K',
             casting='no',
-            ex_uses_vml=False
+            ex_uses_vml=False,
         )
 
         np.add(f_sum_r, tmp_r - f[i, :r], out=f_sum_r)
@@ -571,7 +579,7 @@ def _bayesian_blocks(
     if show_progress:
         print(f'\nBayesian Blocks: about {timing} to go')
 
-    ncp_prior = 4 - np.log(73.53 * p0 * (n ** -0.478))
+    ncp_prior = 4 - np.log(73.53 * p0 * (n**-0.478))
 
     if n_remainder.ndim > 1 or data_type == 'BIN':
         core_loop = _loop2
@@ -605,11 +613,15 @@ def _bayesian_blocks(
         convergence = False
         for nit in range(1, iteration + 1):
             fpr_single = 1 - (1 - p0) ** (1 / ncp_hist[-1])
-            ncp_prior = 4 - np.log(73.53 * fpr_single * (n ** -0.478))
+            ncp_prior = 4 - np.log(73.53 * fpr_single * (n**-0.478))
             ncp_prior_hist.append(ncp_prior)
 
             cp = core_loop(
-                n_remainder, t_remainder, ncp_prior, f'{nit} '.rjust(6), show_progress
+                n_remainder,
+                t_remainder,
+                ncp_prior,
+                f'{nit} '.rjust(6),
+                show_progress,
             )
             cp_hist.append(cp)
 
@@ -620,8 +632,10 @@ def _bayesian_blocks(
             fpr_hist.append(fpr)
             if show_progress:
                 print(
-                    f'  NCP : {len8_rjust(ncp_hist[-2])} -> {len8_ljust(ncp)}\n'
-                    f'  FPR : {fpr_hist[-2]:.2e} -> {fpr:.2e}\n'
+                    f'  NCP : {len8_rjust(ncp_hist[-2])} -> {len8_ljust(ncp)}'
+                    '\n'
+                    f'  FPR : {fpr_hist[-2]:.2e} -> {fpr:.2e}'
+                    '\n'
                 )
 
             if ncp == ncp_hist[-2]:
@@ -659,13 +673,8 @@ def _bayesian_blocks(
     counts = nr[..., :-1] - nr[..., 1:]
     exposure = tr[..., :-1] - tr[..., 1:]
 
-    prob = (
-        ChangePointPosterior(locs=data.voronoi[:1], prob=np.array([1.0])),
-    )
-    prob += tuple(
-        _get_cp_prob(data, cp, i)
-        for i in range(1, len(cp) - 1)
-    )
+    prob = (ChangePointPosterior(locs=data.voronoi[:1], prob=np.array([1.0])),)
+    prob += tuple(_get_cp_prob(data, cp, i) for i in range(1, len(cp) - 1))
     prob += (
         ChangePointPosterior(locs=data.voronoi[-1:], prob=np.array([1.0])),
     )
@@ -747,8 +756,11 @@ def blocks_tte(
     if iteration < 0:
         raise ValueError('`iteration` must be non-negative')
 
-    if (tstart is not None) and (live_time is not None) \
-            and ((ltstart is None) or (ltstop is None)):
+    if (
+        (tstart is not None)
+        and (live_time is not None)
+        and ((ltstart is None) or (ltstop is None))
+    ):
         raise ValueError(
             '`ltstart` and `ltstop` must be provided if `tstart`, `tstop` and '
             '`live_time` are all provided'
@@ -840,9 +852,7 @@ def blocks_binned(
 
     exposure = np.atleast_2d(exposure)
     if counts.shape != exposure.shape:
-        raise ValueError(
-            '`counts` and `exposure` must have the same shape'
-        )
+        raise ValueError('`counts` and `exposure` must have the same shape')
 
     if np.any(dt < exposure):
         raise ValueError('`exposure` must be less than the width of each bin')
@@ -948,15 +958,15 @@ def get_duration_prob(result: BayesianBlocksResult, idx0: int, idx1: int):
 
 
 if __name__ == '__main__':
-    np.random.seed(42)
+    rng = np.random.default_rng(0)
     t1 = np.r_[
-        np.random.uniform(-9.0, 0.5, 1000),
-        np.random.uniform(-0.5, 7.0, 1000)
+        rng.uniform(-9.0, 0.5, 1000),
+        rng.uniform(-0.5, 7.0, 1000)
     ]
     t1 = np.sort(t1)
     t2 = np.r_[
-        np.random.uniform(-8.5, 1.0, 1000),
-        np.random.uniform(-0.5, 7.0, 100)
+        rng.uniform(-8.5, 1.0, 1000),
+        rng.uniform(-0.5, 7.0, 100)
     ]
     t2 = np.sort(t2)
     # bb = blocks_tte(np.sort(np.r_[t1, t2]), iteration=0)
@@ -965,6 +975,6 @@ if __name__ == '__main__':
     from astropy.stats import bayesian_blocks as bb_astropy
     edge = bb_astropy(np.sort(np.r_[t1, t2]), fitness='events', p0=0.05)
     assert np.all(bb.edge == edge)
-    tbins = np.linspace(-9, 7, 1601)
-    binned = np.histogram(np.sort(np.r_[t1, t2]), tbins)[0]
-    bb_binned = blocks_binned(tbins, binned, iteration=5)
+    tbins = np.linspace(-9, 7, 161)
+    counts = np.histogram(np.sort(np.r_[t1, t2]), tbins)[0]
+    bb_binned = blocks_binned(tbins, counts)
