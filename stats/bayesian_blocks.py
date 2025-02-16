@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from sys import stdout
-from typing import NamedTuple, Sequence, TYPE_CHECKING
+from typing import Literal, NamedTuple, Sequence, TYPE_CHECKING
 
 import numpy as np
 import numexpr as ne
 from scipy.stats import norm
-from tqdm import trange
+from tqdm.auto import trange, tqdm
 
 if TYPE_CHECKING:
     from numpy import ndarray as NDArray
@@ -24,13 +24,13 @@ class BayesianBlocksData(NamedTuple):
     """The counts of each bin."""
 
     t: NDArray
-    """The length of each bin."""
+    """The exposure of each bin."""
 
     n_remainder: NDArray
-    """The counts after each bin."""
+    """The counts remained after each bin."""
 
     t_remainder: NDArray
-    """The length after each bin."""
+    """The exposure remained after each bin."""
 
     n_data: int
     """The total number of data points."""
@@ -275,10 +275,10 @@ def _get_data_from_tte(
     for i in range(n_row):
         n[i][n_idx[i] : n_idx[i+1]] = counts[i]
     n = n[:, argsort]
-    n_cumsum = np.hstack((zeros, n)).cumsum(axis=1)
+    n_cumsum = np.hstack((zeros, n.cumsum(axis=1)))
     n_remainder = n_cumsum[:, -1:] - n_cumsum
 
-    t_idx = np.hstack([zeros, np.where(n, 1, 0)]).cumsum(axis=1)
+    t_idx = np.hstack((zeros, np.where(n, 1, 0).cumsum(axis=1)))
     t_cumsum = np.zeros_like(n_cumsum, dtype=np.float64)
     for i in range(n_row):
         unq_i = lt_unq[i]
@@ -342,7 +342,7 @@ _fitness1 = ne.NumExpr(
 )
 
 
-def _loop_events(
+def _loop1(
     n_remainder: NDArray,
     t_remainder: NDArray,
     ncp_prior: float,
@@ -415,7 +415,7 @@ _fitness2 = ne.NumExpr(
 )
 
 
-def _loop_joint_events(
+def _loop2(
     n_remainder: NDArray,
     t_remainder: NDArray,
     ncp_prior: float,
@@ -430,8 +430,10 @@ def _loop_joint_events(
     N = n_remainder.shape[1] - 1
 
     # arrays to store the intermediate results and the best configuration
-    idx = np.where(np.transpose(n_remainder[:, :-1] > n_remainder[:, 1:]))[1]
-    idx = np.hstack((n, idx))
+    # for each col, get the index of row where the value is non-zero
+    col, row = np.where(np.transpose(n_remainder[:, :-1] > n_remainder[:, 1:]))
+    col += 1
+    idx = np.column_stack((col, row))
     f = np.full((n, N), 0.0, dtype=np.float64)
     f_sum = np.full(N, -ncp_prior, dtype=np.float64)
     tmp = np.empty(N, dtype=np.float64)
@@ -441,9 +443,8 @@ def _loop_joint_events(
     # -----------------------------------------------------------------
     # Start core loop, add one cell at each iteration
     # -----------------------------------------------------------------
-    range_ = trange(1, N + 1, desc=desc, file=stdout) if progress else range(1, N + 1)
-    for r in range_:
-        i = idx[r]
+    idx = tqdm(idx, desc=desc, file=stdout) if progress else idx
+    for r, i in idx:
         f_sum_r = f_sum[:r]
         tmp_r = tmp[:r]
 
@@ -545,100 +546,41 @@ def _get_cp_significance(
     mask = n_all > 0
     fitness_null_hyp += np.sum(n_all[mask] * np.log(n_all[mask] / t_all[mask]))
 
-    fitness_alt_hyp = np.sum(n * np.log(n / t))
+    mask = n > 0
+    fitness_alt_hyp = np.sum(n[mask] * np.log(n[mask] / t[mask]))
     ln_lr = fitness_alt_hyp - fitness_null_hyp
 
     return ChangePointSignificance(llr=2 * ln_lr, lor=ln_lr - ncp_prior)
 
 
-def blocks_tte(
-    t: NDArray | list[NDArray],
-    live_time: NDArray | None = None,
-    p0: float = 0.05,
-    iteration: int = 0,
-    show_progress: bool = True,
-    tstart: float | None = None,
-    tstop: float | None = None,
-    ltstart: float | None = None,
-    ltstop: float | None = None,
+def _bayesian_blocks(
+    data: BayesianBlocksData,
+    p0: float,
+    iteration: int,
+    show_progress: bool,
+    data_type: Literal['EVT', 'BIN'],
 ) -> BayesianBlocksResult:
-    """Run the Bayesian Blocks algorithm on the time-tagged event data.
-
-    Parameters
-    ----------
-    t : ndarray or sequence of ndarray
-        The time-tagged event data. If a sequence of ndarray is given, each
-        element is treated as a separate series.
-    live_time : ndarray or sequence of ndarray, optional
-        The live time of each event. If not given, `live_time` is identical
-        to `t`.
-    p0 : float, optional
-        The false positive rate. The default is 0.05.
-    iteration : int, optional
-        The number of iterations to run to ensure overall false positive rate
-        converge to `p0`. The default is 0.
-    show_progress : bool, optional
-        Whether to show the information of the progress. The default is True.
-    tstart : float, optional
-        The start time of the blocks. The default is the minimum of `t`.
-    tstop : float, optional
-        The stop time of the blocks. The default is the maximum of `t`.
-    ltstart : float or sequence of float, optional
-        The corresponding live time at `tstart` for each data in `t`.
-    ltstop : float or sequence of float, optional
-        The corresponding live time at `tstop` for each data in `t`.
-
-    Returns
-    -------
-    BayesianBlocksResult
-        The result of the Bayesian Blocks algorithm.
-    """
-    p0 = float(p0)
-    iteration = int(iteration)
-    show_progress = bool(show_progress)
-    if tstart is not None:
-        tstart = float(tstart)
-    if tstop is not None:
-        tstop = float(tstop)
-
-    if p0 <= 0.0 or p0 >= 1.0:
-        raise ValueError('`p0` must be within (0,1)')
-
-    if iteration < 0:
-        raise ValueError('`iteration` must be non-negative')
-
-    if (tstart is not None) and (live_time is not None) \
-            and ((ltstart is None) or (ltstop is None)):
-        raise ValueError(
-            '`ltstart` and `ltstop` must be provided if `tstart`, `tstop` and '
-            '`live_time` are all provided'
-        )
-
-    if ((tstart is None) + (tstop is None)) % 2:
-        raise ValueError('`tstart` and `tstop` must be both provided')
-    elif ((ltstart is None) + (ltstop is None)) % 2:
-        raise ValueError('`ltstart` and `ltstop` must be both provided')
-
-    if tstart is not None:
-        if tstart >= tstop:
-            raise ValueError('`tstart` must be less than `tstop`')
-
     len8_rjust = lambda s: str(s).rjust(2).rjust(5).ljust(8)
     len8_ljust = lambda s: str(s).ljust(2).rjust(5).ljust(8)
 
-    data = _get_data_from_tte(t, live_time, tstart, tstop, ltstart, ltstop)
     n = data.n_data
     n_remainder = data.n_remainder
     t_remainder = data.t_remainder
 
-    timing = _estimate_run_time(n_remainder.shape[-1])
+    timing = _estimate_run_time(np.sum(data.n.astype(bool)))
     if show_progress:
         print(f'\nBayesian Blocks: about {timing} to go')
 
     ncp_prior = 4 - np.log(73.53 * p0 * (n ** -0.478))
 
-    core_loop = _loop_events if n_remainder.ndim == 1 else _loop_joint_events
-    cp = core_loop(n_remainder, t_remainder, ncp_prior, '  EVT ', show_progress)
+    if n_remainder.ndim > 1 or data_type == 'BIN':
+        core_loop = _loop2
+    else:
+        core_loop = _loop1
+
+    cp = core_loop(
+        n_remainder, t_remainder, ncp_prior, f'  {data_type} ', show_progress
+    )
     ncp = cp.size
     fpr = 1 - (1 - p0) ** ncp
     if show_progress:
@@ -749,6 +691,180 @@ def blocks_tte(
     )
 
 
+def blocks_tte(
+    t: NDArray | list[NDArray],
+    live_time: NDArray | None = None,
+    p0: float = 0.05,
+    iteration: int = 0,
+    show_progress: bool = True,
+    tstart: float | None = None,
+    tstop: float | None = None,
+    ltstart: float | None = None,
+    ltstop: float | None = None,
+) -> BayesianBlocksResult:
+    """Run the Bayesian Blocks algorithm on the time-tagged event data.
+
+    Parameters
+    ----------
+    t : ndarray or sequence of ndarray
+        The time-tagged event data. If a sequence of ndarray is given, each
+        element is treated as a separate series.
+    live_time : ndarray or sequence of ndarray, optional
+        The live time of each event. If not given, `live_time` is identical
+        to `t`.
+    p0 : float, optional
+        The false positive rate. The default is 0.05.
+    iteration : int, optional
+        The number of iterations to run to ensure overall false positive rate
+        converge to `p0`. The default is 0.
+    show_progress : bool, optional
+        Whether to show the information of the progress. The default is True.
+    tstart : float, optional
+        The start time of the blocks. The default is the minimum of `t`.
+    tstop : float, optional
+        The stop time of the blocks. The default is the maximum of `t`.
+    ltstart : float or sequence of float, optional
+        The corresponding live time at `tstart` for each data in `t`.
+    ltstop : float or sequence of float, optional
+        The corresponding live time at `tstop` for each data in `t`.
+
+    Returns
+    -------
+    BayesianBlocksResult
+        The result of the Bayesian Blocks algorithm.
+    """
+    p0 = float(p0)
+    iteration = int(iteration)
+    show_progress = bool(show_progress)
+    if tstart is not None:
+        tstart = float(tstart)
+    if tstop is not None:
+        tstop = float(tstop)
+
+    if p0 <= 0.0 or p0 >= 1.0:
+        raise ValueError('`p0` must be within (0,1)')
+
+    if iteration < 0:
+        raise ValueError('`iteration` must be non-negative')
+
+    if (tstart is not None) and (live_time is not None) \
+            and ((ltstart is None) or (ltstop is None)):
+        raise ValueError(
+            '`ltstart` and `ltstop` must be provided if `tstart`, `tstop` and '
+            '`live_time` are all provided'
+        )
+
+    if ((tstart is None) + (tstop is None)) % 2:
+        raise ValueError('`tstart` and `tstop` must be both provided')
+    elif ((ltstart is None) + (ltstop is None)) % 2:
+        raise ValueError('`ltstart` and `ltstop` must be both provided')
+
+    if tstart is not None:
+        if tstart >= tstop:
+            raise ValueError('`tstart` must be less than `tstop`')
+
+    data = _get_data_from_tte(t, live_time, tstart, tstop, ltstart, ltstop)
+    return _bayesian_blocks(data, p0, iteration, show_progress, 'EVT')
+
+
+def blocks_binned(
+    tbins: NDArray,
+    counts: NDArray,
+    exposure: NDArray | None = None,
+    p0: float = 0.05,
+    iteration: int = 0,
+    show_progress: bool = True,
+) -> BayesianBlocksResult:
+    """Run the Bayesian Blocks algorithm on the binned data.
+
+    Parameters
+    ----------
+    tbins : ndarray
+        The time bins, with shape (nt + 1,).
+    counts : ndarray
+        The counts in each time bin, with shape (nd, nt) or (nt,).
+    exposure : ndarray, optional
+        The exposure in each time bin, with shape (nd, nt) or (nt,).
+        The default is the width of time bins.
+    p0 : float, optional
+        The false positive rate. The default is 0.05.
+    iteration : int, optional
+        The number of iterations to run to ensure overall false positive rate
+        converge to `p0`. The default is 0.
+    show_progress : bool, optional
+        Whether to show the information of the progress. The default is True.
+
+    Returns
+    -------
+    BayesianBlocksResult
+        The result of the Bayesian Blocks algorithm.
+    """
+    p0 = float(p0)
+    iteration = int(iteration)
+    show_progress = bool(show_progress)
+
+    if p0 <= 0.0 or p0 >= 1.0:
+        raise ValueError('`p0` must be within (0,1)')
+
+    if iteration < 0:
+        raise ValueError('`iteration` must be non-negative')
+
+    if tbins.ndim != 1:
+        raise ValueError('`tbins` must be 1D array')
+
+    if counts.ndim not in (1, 2):
+        raise ValueError('`counts` must be 1D or 2D array')
+
+    if not np.allclose(counts, np.asarray(counts, dtype=int)):
+        raise ValueError('`counts` must be integer')
+
+    counts = np.atleast_2d(counts)
+
+    if tbins.size != counts.shape[1] + 1:
+        raise ValueError(
+            f'`tbins` ({len(tbins)},) not matched to `counts` {counts.shape}'
+        )
+
+    dt = np.diff(tbins)
+    if np.any(dt <= 0):
+        raise ValueError('`tbins` must be monotonically increasing')
+
+    if exposure is not None:
+        if exposure.ndim not in (1, 2):
+            raise ValueError('`exposure` must be 1D or 2D array')
+
+        if np.any(exposure <= 0.0):
+            raise ValueError('`exposure` must be positive')
+    else:
+        exposure = np.diff(tbins)
+
+    exposure = np.atleast_2d(exposure)
+    if counts.shape != exposure.shape:
+        raise ValueError(
+            '`counts` and `exposure` must have the same shape'
+        )
+
+    if np.any(dt < exposure):
+        raise ValueError('`exposure` must be less than the width of each bin')
+
+    zeros = np.zeros(shape=(counts.shape[0], 1), dtype=int)
+    n_cumsum = np.hstack((zeros, counts.cumsum(axis=1)))
+    n_remainder = np.array(n_cumsum[:, -1:] - n_cumsum, dtype=int, order='C')
+
+    t_cumsum = np.hstack((zeros, exposure.cumsum(axis=1)))
+    t_remainder = np.array(t_cumsum[:, -1:] - t_cumsum, dtype=float, order='C')
+
+    data = BayesianBlocksData(
+        voronoi=np.ascontiguousarray(tbins, dtype=float),
+        n=np.ascontiguousarray(counts, dtype=float),
+        t=np.ascontiguousarray(exposure, dtype=float),
+        n_remainder=n_remainder,
+        t_remainder=t_remainder,
+        n_data=int(np.prod(counts.shape)),
+    )
+    return _bayesian_blocks(data, p0, iteration, show_progress, 'BIN')
+
+
 class DurationResult(NamedTuple):
     """The result of the duration probability."""
 
@@ -832,6 +948,7 @@ def get_duration_prob(result: BayesianBlocksResult, idx0: int, idx1: int):
 
 
 if __name__ == '__main__':
+    np.random.seed(42)
     t1 = np.r_[
         np.random.uniform(-9.0, 0.5, 1000),
         np.random.uniform(-0.5, 7.0, 1000)
@@ -848,3 +965,6 @@ if __name__ == '__main__':
     from astropy.stats import bayesian_blocks as bb_astropy
     edge = bb_astropy(np.sort(np.r_[t1, t2]), fitness='events', p0=0.05)
     assert np.all(bb.edge == edge)
+    tbins = np.linspace(-9, 7, 1601)
+    binned = np.histogram(np.sort(np.r_[t1, t2]), tbins)[0]
+    bb_binned = blocks_binned(tbins, binned, iteration=5)
