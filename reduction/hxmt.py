@@ -390,7 +390,7 @@ def me_reduction(
     if bkg_intervals is not None:
         if len(bkg_intervals) % 2 != 0:
             raise ValueError('length of `bkg_intervals` is not multiple of 2')
-        if np.any(np.diff(bkg_intervals) ):
+        if np.any(np.diff(bkg_intervals) < 0.0):
             raise ValueError('`bkg_intervals` is not incremental in time')
         if bkg_intervals[0] < tstart:
             raise ValueError('`bkg_intervals[0]` is smaller than `tstart`')
